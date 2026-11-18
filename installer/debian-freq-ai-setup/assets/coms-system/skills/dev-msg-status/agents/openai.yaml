@@ -1,0 +1,4 @@
+interface:
+  display_name: "Message delivery status"
+  short_description: "Inspect message receipts without replaying delivery"
+  default_prompt: "Use $dev-msg-status to inspect the relevant state and perform the supported operation within my current grant."

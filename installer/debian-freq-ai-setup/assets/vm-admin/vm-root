@@ -1,0 +1,36 @@
+#!/usr/bin/python3 -I
+"""Explicit owner-authorized root access for Jarvis on this VM."""
+import os
+import pwd
+import shlex
+import subprocess
+import sys
+
+def main():
+    account=pwd.getpwnam('jarvis')
+    if os.getuid()!=account.pw_uid or os.geteuid()!=account.pw_uid:
+        raise SystemExit('vm-root: this entry point is for Jarvis only')
+    args=sys.argv[1:]
+    if not args or args==['--help']:
+        print('Usage: vm-root -- COMMAND [ARG ...]\n       vm-root --script < maintenance.sh\n       vm-root --shell\nRuns as unrestricted root on this VM through authenticated localhost SSH.')
+        return
+    tty=False
+    if args==['--script']:command='/bin/bash -se'
+    elif args==['--shell']:
+        if not sys.stdin.isatty():raise SystemExit('vm-root: --shell requires a terminal; use --script for stdin')
+        tty=True;command='/bin/bash -l'
+    elif args[0]=='--' and len(args)>1:command=shlex.join(args[1:])
+    else:raise SystemExit('vm-root: use -- COMMAND, --script, or --shell')
+    subprocess.run(['/usr/bin/logger','-t','freq-vm-root','actor=jarvis target=localhost uid=0 session_requested'],check=False)
+    ssh=['/usr/bin/ssh','-F','/dev/null','-tt' if tty else '-T','-p','22',
+         '-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','IdentityAgent=none',
+         '-o','StrictHostKeyChecking=yes','-o','HostKeyAlias=freq-ai-box-local-root',
+         '-o','UserKnownHostsFile=/etc/freq-ai-setup/vm-root/known_hosts',
+         '-o','GlobalKnownHostsFile=/dev/null','-o','ConnectTimeout=10',
+         '-o','ServerAliveInterval=15','-o','ServerAliveCountMax=3',
+         '-i',account.pw_dir+'/.local/share/freq-vm-admin/id_ed25519',
+         'root@127.0.0.1',command]
+    os.execve(ssh[0],ssh,{'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','HOME':account.pw_dir,
+                       'LANG':'C.UTF-8','TERM':os.environ.get('TERM','xterm-256color')})
+
+if __name__=='__main__':main()

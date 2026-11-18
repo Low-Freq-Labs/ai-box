@@ -1,0 +1,85 @@
+#!/usr/bin/python3
+"""Offline image build/run and boundary checks from the real agent context."""
+import json
+import os
+from pathlib import Path
+import pwd
+import shlex
+import subprocess
+import tempfile
+import uuid
+
+def run(*args, cwd, expect=0):
+    result = subprocess.run(args, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=180)
+    if result.returncode != expect:
+        raise RuntimeError(f'{args[0]} exit={result.returncode}: {result.stderr[-2000:]}')
+    return result.stdout
+
+def main():
+    account = pwd.getpwuid(os.getuid())
+    if os.getuid() == 0 or os.environ.get('FREQ_SANDBOX') != '1':
+        raise RuntimeError('run container acceptance inside an agent sandbox')
+    root = Path(os.environ.get('FREQ_CONTAINER_TEST_BIN', '/usr/local/bin'))
+    podman, buildah, bwrap = [str(root / tool) for tool in ('podman', 'buildah', 'bwrap')]
+    site = dict((k.removeprefix('export '), shlex.split(v)[0]) for line in Path('/etc/freq-ai-setup/site.conf').read_text().splitlines() if '=' in line for k, v in [line.split('=', 1)])
+    tag = 'localhost/freq-accept-' + uuid.uuid4().hex
+    tags = [tag + ':podman', tag + ':buildah']
+    with tempfile.TemporaryDirectory(prefix='.freq-container-accept-', dir=account.pw_dir) as directory:
+        work = Path(directory)
+        info = json.loads(run(podman, 'info', '--format', 'json', cwd=work))
+        assert info['host']['security']['rootless'] is True
+        assert info['store']['runRoot'] == '/run/freq-container-state/' + account.pw_name + '/containers'
+        run(buildah, 'info', cwd=work)
+        command = 'test "$(cat /proc/1/comm)" = catatonit && test ! -e /run/systemd/private && test ! -e /run/dbus/system_bus_socket && test ! -r /etc/shadow && test ! -r ' + shlex.quote(site['FREQ_MASTER_HOME'] + '/.bashrc')
+        run(bwrap, '--ro-bind', '/', '/', '--proc', '/proc', '--dev', '/dev', '/bin/sh', '-c', command, cwd=work)
+        print('PASS rootless Podman/Buildah and isolated Bubblewrap')
+        (work / 'probe.c').write_text(r'''
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+int main(int argc,char **argv){
+ if(argc>1 && !strcmp(argv[1],"deny")){
+  for(int i=2;i<argc;i++) if(access(argv[i],R_OK)==0) return 77;
+ } else if(argc>2 && !strcmp(argv[1],"write")){
+  FILE *f=fopen(argv[2],"w"); if(!f)return 78; fputs("FREQ\n",f); fclose(f);
+ }
+ puts("FREQ");return 0;
+}
+''')
+        run('cc', '-static', '-O2', 'probe.c', '-o', 'probe', cwd=work)
+        (work / 'Containerfile').write_text('FROM scratch\nCOPY probe /probe\nRUN ["/probe"]\nENTRYPOINT ["/probe"]\n')
+        try:
+            run(podman, 'build', '--network=none', '--layers=false', '-t', tags[0], '.', cwd=work)
+            run(buildah, 'bud', '--network=none', '--layers=false', '-t', tags[1], '.', cwd=work)
+            for image in tags:
+                assert run(podman, 'run', '--rm', '--network=none', image, cwd=work).strip() == 'FREQ'
+            # Unsupported privilege modes fail closed. A broad ordinary bind
+            # still sees only the worker's already isolated filesystem.
+            forbidden = ['/host' + site['FREQ_MASTER_HOME'] + '/.bashrc', '/host/root/.bashrc',
+                         '/host/etc/shadow', '/host/run/systemd/private',
+                         '/host/proc/1/root' + site['FREQ_MASTER_HOME'] + '/.bashrc']
+            run(podman, 'run', '--rm', '--pid=host', '--network=none', tags[0], cwd=work, expect=125)
+            run(podman, 'run', '--rm', '--privileged', '--network=none', tags[0], cwd=work, expect=126)
+            assert run(podman, 'run', '--rm', '--network=none',
+                       '-v', '/:/host:ro', tags[0], 'deny', *forbidden, cwd=work).strip() == 'FREQ'
+            with tempfile.TemporaryDirectory(prefix='.freq-container-write-', dir='/home/freq-agents/projects') as shared:
+                run(podman, 'run', '--rm', '--network=none', '-v', shared + ':/out', tags[0], 'write', '/out/result', cwd=work)
+                assert (Path(shared) / 'result').read_text() == 'FREQ\n'
+            if os.environ.get('FREQ_CONTAINER_SHARED_PROBE'):
+                shared_file = Path(os.environ['FREQ_CONTAINER_SHARED_PROBE']).resolve(strict=True)
+                assert Path('/home/freq-agents/projects') in shared_file.parents
+                run(podman, 'run', '--rm', '--network=none', '-v', str(shared_file.parent) + ':/out',
+                    tags[0], 'write', '/out/' + shared_file.name, cwd=work)
+                assert shared_file.read_text() == 'FREQ\n'
+            print('PASS offline Podman/Buildah builds, container runs, shared writes, protected-path denial')
+        finally:
+            for image in tags:
+                result = subprocess.run([podman, 'image', 'exists', image], cwd=work, capture_output=True)
+                if result.returncode == 0:
+                    run(podman, 'rmi', image, cwd=work)
+                elif result.returncode != 1:
+                    raise RuntimeError('cannot verify test image cleanup')
+    print('CONTAINER_ACCEPTANCE_PASS temporary_images_and_files=removed')
+
+if __name__ == '__main__':
+    main()

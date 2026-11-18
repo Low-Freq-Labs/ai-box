@@ -1,0 +1,4 @@
+interface:
+  display_name: "Watch Once"
+  short_description: "Follow a job and notify my inbox once it ends"
+  default_prompt: "Use $watch-once to observe this job and notify my inbox when it finishes."

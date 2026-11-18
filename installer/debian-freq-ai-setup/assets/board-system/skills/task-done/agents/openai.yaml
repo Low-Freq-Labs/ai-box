@@ -1,0 +1,4 @@
+interface:
+  display_name: "Complete Owned Task"
+  short_description: "Complete owned work with durable evidence"
+  default_prompt: "Use $task-done when my active task is genuinely complete and record the artifact, verification, outcome, and limitations."

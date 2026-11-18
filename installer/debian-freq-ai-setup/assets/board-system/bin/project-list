@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+import fcntl
+import os
+import re
+import stat
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+import freq_board_pause as pause
+
+
+DEFAULT_BOARD_ROOT = Path("/var/lib/freq-agents/board")
+PROJECT_ID_RE = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)*$")
+AGENT_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+
+
+class ProjectListError(Exception):
+    pass
+
+
+def fail(message):
+    raise ProjectListError(message)
+
+
+def usage():
+    print("Usage: project-list [--diagnostic]", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def board_root():
+    if os.environ.get("FREQ_BOARD_TESTING") == "1":
+        return Path(os.environ.get("FREQ_BOARD_ROOT", DEFAULT_BOARD_ROOT))
+    return DEFAULT_BOARD_ROOT
+
+
+def projects_root():
+    path = board_root() / "projects"
+    if path.is_symlink() or not path.is_dir():
+        fail(f"projects root is unavailable: {path}")
+    return path
+
+
+def assigned_agents(project, diagnostic=False, errors=None):
+    active = project / "active"
+    if active.is_symlink() or not active.is_dir():
+        fail(f"project active directory is unavailable: {project.name}")
+    agents = []
+    for path in active.iterdir():
+        if path.name.startswith("."):
+            continue
+        mode = path.lstat().st_mode
+        if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+            fail(f"agent assignment path is invalid: {path}")
+        if not AGENT_RE.fullmatch(path.name):
+            fail(f"agent assignment name is invalid: {path.name}")
+        try:
+            label = " (paused)" if pause.load(project, path.name) else ""
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            if not diagnostic:
+                raise
+            label = " (pause INVALID)"
+            errors.append(f"{project.name}/{path.name}: {str(error)[:1000]}")
+        agents.append(path.name + label)
+    return sorted(agents)
+
+
+def discover(root, diagnostic=False, errors=None):
+    rows = []
+    for project in root.iterdir():
+        if project.name.startswith("."):
+            continue
+        mode = project.lstat().st_mode
+        if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+            fail(f"project path is invalid: {project}")
+        if not PROJECT_ID_RE.fullmatch(project.name) or len(project.name) > 64:
+            fail(f"project ID is invalid: {project.name}")
+        lock_descriptor = os.open(project, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(lock_descriptor, fcntl.LOCK_SH)
+            rows.append((project.name, assigned_agents(project, diagnostic, errors)))
+        finally:
+            os.close(lock_descriptor)
+    return sorted(rows, key=lambda row: row[0])
+
+
+def render(rows):
+    width = max([len("PROJECT"), *(len(project_id) for project_id, _ in rows)]) + 3
+    print(f"{'PROJECT':<{width}}ASSIGNED AGENTS")
+    for project_id, agents in rows:
+        assignment = ", ".join(agents) if agents else "(none)"
+        print(f"{project_id:<{width}}{assignment}")
+    print()
+    noun = "project" if len(rows) == 1 else "projects"
+    print(f"{len(rows)} {noun}")
+
+
+def run(arguments):
+    if arguments not in ([], ["--diagnostic"]):
+        usage()
+    diagnostic = bool(arguments)
+    errors = []
+    root = projects_root()
+    lock_descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(lock_descriptor, fcntl.LOCK_SH)
+        rows = discover(root, diagnostic, errors)
+        if errors:
+            print("DIAGNOSTIC INVENTORY: invalid pause proof; not a healthy board result")
+        render(rows)
+        for error in errors:
+            print("project-list: PAUSE INVALID: " + error, file=sys.stderr)
+        return 1 if errors else 0
+    finally:
+        os.close(lock_descriptor)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(run(sys.argv[1:]))
+    except ProjectListError as error:
+        print(f"project-list: LIST FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        print(f"project-list: LIST FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)

@@ -1,0 +1,11 @@
+[Unit]
+Description=FREQ authenticated host management and service alerts
+
+[Socket]
+ListenStream=/run/freq-host-admin.sock
+SocketMode=0666
+Backlog=16
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

@@ -1,0 +1,539 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly default_source=/opt/freq-agents/board-system
+readonly default_behavior=/opt/freq-agents/board-behavior
+readonly default_bin=/usr/local/bin
+readonly default_board=${FREQ_BOARD_ROOT_DEFAULT:-/var/lib/freq-agents/board}
+readonly internal_worker_dir=/usr/local/libexec
+readonly internal_worker=$internal_worker_dir/freq-board-alert-watch
+readonly stale_internal_worker=/usr/local/libexec/freq-agents/board-alert-watch
+readonly agent_group=freq-agents
+readonly config_root=/etc/freq-ai-setup
+readonly site_config=$config_root/site.conf
+[[ -f $site_config && ! -L $site_config \
+   && $(stat -Lc '%U:%G:%a' "$site_config" 2>/dev/null) == root:root:644 ]] || {
+    printf 'setup-board: safe FREQ-AI-SETUP site config is unavailable\n' >&2
+    exit 2
+}
+source "$site_config"
+readonly master_user=${FREQ_MASTER_USER:?missing FREQ_MASTER_USER}
+readonly master_group=${FREQ_MASTER_GROUP:?missing FREQ_MASTER_GROUP}
+readonly master_home=${FREQ_MASTER_HOME:?missing FREQ_MASTER_HOME}
+readonly operator_name=${FREQ_OPERATOR_NAME:-Operator}
+readonly config_file=$config_root/board.conf
+readonly coms_config=$config_root/coms.conf
+readonly registry_root=$config_root/agents.d
+readonly installed_skill_root=/opt/freq-agents/skills
+
+readonly -a commands=(
+    project-archive project-assign project-list project-register
+    project-status task-dependencies task-block task-done task-ready
+    task-register task-status task-transfer project-assess task-update agent-skills board-stop-hook task-project-migrate
+)
+readonly -a skills=(
+    project-archive project-assign project-list project-register
+    project-status task-dependencies task-block task-done task-ready
+    task-register task-status task-transfer project-assess task-update agent-skills
+)
+
+use_defaults=0
+assume_yes=0
+
+usage() {
+    cat <<'EOF'
+Usage: setup-board [--defaults] [--yes]
+
+Interactively installs the FREQ board commands, skills, shared state, behavior,
+and per-agent alert timers. --defaults skips path prompts; --yes skips the final
+confirmation. Run with no options for the normal interactive setup.
+
+For FREQ-AI-SETUP isolation, the board state must remain at or below
+/var/lib/freq-agents/board. The communications system must be installed first.
+EOF
+}
+
+fail() { printf 'setup-board: %s\n' "$*" >&2; exit 2; }
+
+while (($#)); do
+    case $1 in
+        --defaults) use_defaults=1 ;;
+        --yes|-y) assume_yes=1 ;;
+        --help|-h) usage; exit 0 ;;
+        *) usage >&2; fail "unknown option: $1" ;;
+    esac
+    shift
+done
+
+if [[ $EUID -ne 0 ]]; then
+    sudo_args=()
+    ((use_defaults)) && sudo_args+=(--defaults)
+    ((assume_yes)) && sudo_args+=(--yes)
+    exec sudo -- "$0" "${sudo_args[@]}"
+fi
+
+prompt_path() {
+    local label=$1 default=$2 reply
+    read -r -p "$label [$default]: " reply
+    printf '%s' "${reply:-$default}"
+}
+
+validate_path() {
+    local label=$1 value=$2
+    local path_pattern='^/[A-Za-z0-9._/+ -]+$'
+    [[ $value == /* ]] || fail "$label must be an absolute path"
+    [[ $value != / ]] || fail "$label may not be filesystem root"
+    [[ $value != *$'\n'* && $value != *$'\r'* ]] || \
+        fail "$label contains a line break"
+    [[ $value =~ $path_pattern ]] || \
+        fail "$label contains unsupported characters"
+}
+
+is_at_or_below() {
+    local path=${1%/} parent=${2%/}
+    [[ $path == "$parent" || $path == "$parent/"* ]]
+}
+
+if ((use_defaults)); then
+    source_dir=$default_source
+    behavior_dir=$default_behavior
+    bin_dir=$default_bin
+    board_root=$default_board
+else
+    printf '%s\n' 'FREQ board setup'
+    printf '%s\n' 'Press Enter to accept each recommended path.'
+    source_dir=$(prompt_path 'Board source directory' "$default_source")
+    behavior_dir=$(prompt_path 'Behavior source directory' "$default_behavior")
+    bin_dir=$(prompt_path 'Command install directory' "$default_bin")
+    board_root=$(prompt_path 'Shared board root' "$default_board")
+fi
+
+for pair in \
+    "source directory|$source_dir" \
+    "behavior directory|$behavior_dir" \
+    "command install directory|$bin_dir" \
+    "board root|$board_root"; do
+    validate_path "${pair%%|*}" "${pair#*|}"
+done
+
+source_dir=$(realpath -m -- "$source_dir")
+behavior_dir=$(realpath -m -- "$behavior_dir")
+bin_dir=$(realpath -m -- "$bin_dir")
+board_root=$(realpath -m -- "$board_root")
+lib_dir="$(dirname -- "$bin_dir")/lib"
+
+[[ $bin_dir == /usr/local/bin ]] || \
+    fail 'command install directory must be /usr/local/bin'
+is_at_or_below "$board_root" /var/lib/freq-agents/board || \
+    fail 'board root must be /var/lib/freq-agents/board or one of its descendants'
+getent group "$agent_group" >/dev/null || \
+    fail "required group does not exist: $agent_group"
+getent passwd "$master_user" >/dev/null || \
+    fail "required master user does not exist: $master_user"
+[[ -r $coms_config && ! -L $coms_config \
+   && $(stat -Lc '%U:%G:%a' "$coms_config") == root:root:644 ]] || \
+    fail 'communications setup is unavailable or unsafe; run setup-coms first'
+
+FREQ_COMS_TMUX_DIR=/run/freq-agents/tmux
+FREQ_COMS_ROOT=/var/lib/freq-agents/coms
+source "$coms_config"
+tmux_dir=${FREQ_COMS_TMUX_DIR:-/run/freq-agents/tmux}
+coms_root=${FREQ_COMS_ROOT:-/var/lib/freq-agents/coms}
+is_at_or_below "$tmux_dir" /run/freq-agents/tmux || \
+    fail 'configured tmux directory is outside the board alert boundary'
+is_at_or_below "$coms_root" /var/lib/freq-agents/coms || \
+    fail 'configured communications root is outside the board boundary'
+
+for command in "${commands[@]}"; do
+    source_file="$source_dir/bin/$command"
+    [[ -f $source_file && ! -L $source_file && -r $source_file ]] || \
+        fail "source command is missing, unreadable, or a symlink: $source_file"
+done
+[[ -f $source_dir/bin/board-alert-watch \
+   && ! -L $source_dir/bin/board-alert-watch \
+   && -r $source_dir/bin/board-alert-watch ]] || \
+    fail 'internal board alert worker source is unavailable'
+for library in freq_board.py freq_board_alert.py freq_board_transaction.py freq_board_inspect.py freq_board_dependencies.py freq_dependency_model.py freq_stop_gate.py freq_board_update.py freq_board_pause.py freq_task_identity.py freq_project_migration.py; do
+    source_file="$source_dir/lib/$library"
+    [[ -f $source_file && ! -L $source_file && -r $source_file ]] || \
+        fail "board library is unavailable: $source_file"
+done
+for unit in freq-board-alert@.service freq-board-alert@.timer; do
+    [[ -f $source_dir/systemd/$unit && ! -L $source_dir/systemd/$unit ]] || \
+        fail "board unit is unavailable: $unit"
+done
+for behavior in AGENTS.board.md CLAUDE.board.md; do
+    source_file="$behavior_dir/$behavior"
+    [[ -f $source_file && ! -L $source_file && -r $source_file ]] || \
+        fail "behavior source is unavailable: $source_file"
+    [[ $(grep -Fc '<!-- FREQ_BOARD_WORKFLOW_BEGIN -->' "$source_file") == 1 \
+       && $(grep -Fc '<!-- FREQ_BOARD_WORKFLOW_END -->' "$source_file") == 1 ]] || \
+        fail "behavior markers are malformed: $source_file"
+done
+for skill in "${skills[@]}"; do
+    for skill_file in SKILL.md agents/openai.yaml; do
+        source_file="$source_dir/skills/$skill/$skill_file"
+        [[ -f $source_file && ! -L $source_file && -r $source_file ]] || \
+            fail "source skill file is unavailable: $source_file"
+    done
+done
+
+stage=$(mktemp -d)
+cleanup() { rm -rf -- "$stage"; }
+trap cleanup EXIT HUP INT TERM
+
+for source_file in "$source_dir"/bin/* "$source_dir"/lib/*.py; do
+    shebang=$(head -n 1 -- "$source_file")
+    # Importable Python libraries need no executable shebang.
+    [[ $source_file != "$source_dir"/lib/*.py ]] || shebang='#!/usr/bin/env python3'
+    case $shebang in
+        '#!/usr/bin/env python3'|'#!/usr/bin/python3 -I')
+            python3 - "$source_file" <<'PY'
+import ast
+import pathlib
+import sys
+ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+PY
+            ;;
+        '#!/usr/bin/env bash'|'#!/bin/bash') bash -n "$source_file" ;;
+        *) fail "unsupported source interpreter: $source_file" ;;
+    esac
+done
+
+printf '\nSource:     %s\n' "$source_dir"
+printf 'Behavior:   %s\n' "$behavior_dir"
+printf 'Commands:   %s\n' "$bin_dir"
+printf 'Board:      %s\n' "$board_root"
+printf 'Tmux:       %s\n' "$tmux_dir"
+printf 'Coms:       %s\n' "$coms_root"
+printf 'Agent group: %s\n\n' "$agent_group"
+printf 'Master reader: %s\n\n' "$master_user"
+if ((!assume_yes)); then
+    read -r -p 'Install this board layout? [y/N]: ' answer
+    [[ $answer == y || $answer == Y ]] || { printf 'Cancelled.\n'; exit 1; }
+fi
+
+install -d -o root -g root -m 0755 \
+    "$config_root" "$bin_dir" "$lib_dir" "$internal_worker_dir"
+install -d -o root -g "$agent_group" -m 0750 /var/lib/freq-agents "$board_root"
+install -d -o root -g "$agent_group" -m 2770 "$board_root/projects" "$board_root/.project-migrations"
+install -d -o root -g root -m 0755 "$config_root/board-project-migrations"
+setfacl -m "u:$master_user:r-x" /var/lib/freq-agents "$board_root"
+setfacl -m u::rwx,g::rwx,m::rwx,o::---,d:u::rwx,d:g::rwx,d:m::rwx,d:o::--- \
+    "$board_root/projects"
+python3 - "$board_root/projects" "$agent_group" <<'PY'
+import fcntl
+import grp
+import os
+import re
+import sys
+
+# Upgrade legacy layouts without moving work or following agent-owned links.
+flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+root_fd = os.open(sys.argv[1], flags)
+try:
+    for name in os.listdir(root_fd):
+        if not re.fullmatch(r"[A-Z0-9]+(?:-[A-Z0-9]+)*", name):
+            raise SystemExit(f"setup-board: invalid project entry: {name}")
+        project_fd = os.open(name, flags, dir_fd=root_fd)
+        try:
+            fcntl.flock(project_fd, fcntl.LOCK_EX)
+            for state in ("ready", "active", "blocked", "done"):
+                os.close(os.open(state, flags, dir_fd=project_fd))
+            created = False
+            try:
+                os.mkdir("archive", 0o2770, dir_fd=project_fd)
+                created = True
+            except FileExistsError:
+                pass
+            archive_fd = os.open("archive", flags, dir_fd=project_fd)
+            try:
+                if created:
+                    os.fchown(archive_fd, 0, grp.getgrnam(sys.argv[2]).gr_gid)
+                    os.fchmod(archive_fd, 0o2770)
+            finally:
+                os.close(archive_fd)
+        finally:
+            os.close(project_fd)
+finally:
+    os.close(root_fd)
+PY
+find "$board_root/projects" -type d -exec \
+    setfacl -m "u:$master_user:r-x,d:u:$master_user:r-x" {} +
+find "$board_root/projects" -type f -exec \
+    setfacl -m "u:$master_user:r--" {} +
+
+for command in "${commands[@]}"; do
+    sed \
+        -e "s|^DEFAULT_BOARD_ROOT = Path(.*)$|DEFAULT_BOARD_ROOT = Path(\"$board_root\")|" \
+        -e "s|^readonly DEFAULT_BOARD_ROOT=.*$|readonly DEFAULT_BOARD_ROOT='$board_root'|" \
+        "$source_dir/bin/$command" >"$stage/$command"
+    shebang=$(head -n 1 -- "$stage/$command")
+    case $shebang in
+        '#!/usr/bin/env python3'|'#!/usr/bin/python3 -I') python3 - "$stage/$command" <<'PY'
+import ast
+import pathlib
+import sys
+ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+PY
+            ;;
+        '#!/usr/bin/env bash'|'#!/bin/bash') bash -n "$stage/$command" ;;
+        *) fail "unsupported installed command interpreter: $command" ;;
+    esac
+    install -o root -g root -m 0755 "$stage/$command" "$bin_dir/$command"
+done
+
+sed -e "s|^DEFAULT_BOARD_ROOT = Path(.*)$|DEFAULT_BOARD_ROOT = Path(\"$board_root\")|" \
+    "$source_dir/bin/board-alert-watch" >"$stage/board-alert-watch"
+python3 - "$stage/board-alert-watch" <<'PY'
+import ast
+import pathlib
+import sys
+ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+PY
+install -o root -g root -m 0755 "$stage/board-alert-watch" "$internal_worker"
+
+if [[ -e $stale_internal_worker || -L $stale_internal_worker ]]; then
+    [[ -f $stale_internal_worker && ! -L $stale_internal_worker \
+       && $(stat -Lc '%U:%G:%a' "$stale_internal_worker") == root:root:755 \
+       && $(grep -Fc 'DEFAULT_BOARD_ROOT' "$stale_internal_worker") -ge 1 ]] || \
+        fail "refusing unsafe stale internal board worker: $stale_internal_worker"
+    unlink -- "$stale_internal_worker"
+    rmdir -- /usr/local/libexec/freq-agents 2>/dev/null || true
+fi
+
+stale_worker="$bin_dir/board-alert-watch"
+if [[ -e $stale_worker || -L $stale_worker ]]; then
+    [[ -f $stale_worker && ! -L $stale_worker \
+       && $(stat -Lc '%U:%G:%a' "$stale_worker") == root:root:755 \
+       && $(grep -Fc 'DEFAULT_BOARD_ROOT' "$stale_worker") -ge 1 ]] || \
+        fail "refusing unsafe stale public board worker: $stale_worker"
+    unlink -- "$stale_worker"
+fi
+
+sed \
+    -e "s|^DEFAULT_BOARD_ROOT = Path(.*)$|DEFAULT_BOARD_ROOT = Path(\"$board_root\")|" \
+    -e "s|^DEFAULT_COMS_ROOT = Path(.*)$|DEFAULT_COMS_ROOT = Path(\"$coms_root\")|" \
+    "$source_dir/lib/freq_board.py" >"$stage/freq_board.py"
+sed \
+    -e "s|^DEFAULT_TMUX_DIR = Path(.*)$|DEFAULT_TMUX_DIR = Path(\"$tmux_dir\")|" \
+    -e "s|^DEFAULT_COMS_ROOT = Path(.*)$|DEFAULT_COMS_ROOT = Path(\"$coms_root\")|" \
+    "$source_dir/lib/freq_board_alert.py" >"$stage/freq_board_alert.py"
+for library in freq_board_transaction.py freq_board_inspect.py freq_board_dependencies.py freq_dependency_model.py freq_stop_gate.py freq_board_update.py freq_board_pause.py freq_task_identity.py freq_project_migration.py; do
+    cp -- "$source_dir/lib/$library" "$stage/$library"
+done
+python3 - "$stage/freq_board.py" "$stage/freq_board_alert.py" "$stage/freq_board_transaction.py" "$stage/freq_board_inspect.py" "$stage/freq_board_dependencies.py" "$stage/freq_dependency_model.py" "$stage/freq_stop_gate.py" "$stage/freq_board_update.py" "$stage/freq_board_pause.py" "$stage/freq_task_identity.py" "$stage/freq_project_migration.py" <<'PY'
+import ast
+import pathlib
+import sys
+for filename in sys.argv[1:]:
+    ast.parse(pathlib.Path(filename).read_text(encoding="utf-8"))
+PY
+for library in freq_board.py freq_board_alert.py freq_board_transaction.py freq_board_inspect.py freq_board_dependencies.py freq_dependency_model.py freq_stop_gate.py freq_board_update.py freq_board_pause.py freq_task_identity.py freq_project_migration.py; do
+    install -o root -g root -m 0644 "$stage/$library" "$lib_dir/$library"
+done
+
+for skill in "${skills[@]}"; do
+    install -d -o root -g root -m 0755 "$installed_skill_root/$skill/agents"
+    install -o root -g root -m 0644 "$source_dir/skills/$skill/SKILL.md" \
+        "$installed_skill_root/$skill/SKILL.md"
+    install -o root -g root -m 0644 \
+        "$source_dir/skills/$skill/agents/openai.yaml" \
+        "$installed_skill_root/$skill/agents/openai.yaml"
+done
+
+sed \
+    -e '/^RuntimeDirectoryPreserve=/d' \
+    -e '/^RuntimeDirectoryMode=0770$/a RuntimeDirectoryPreserve=yes' \
+    -e "s|^ExecStart=.*$|ExecStart=$internal_worker|" \
+    "$source_dir/systemd/freq-board-alert@.service" \
+    >"$stage/freq-board-alert@.service"
+install -o root -g root -m 0644 "$stage/freq-board-alert@.service" \
+    /etc/systemd/system/freq-board-alert@.service
+install -o root -g root -m 0644 \
+    "$source_dir/systemd/freq-board-alert@.timer" \
+    /etc/systemd/system/freq-board-alert@.timer
+
+{
+    printf "FREQ_BOARD_ROOT='%s'\n" "$board_root"
+    printf "FREQ_BOARD_BIN_DIR='%s'\n" "$bin_dir"
+} >"$stage/board.conf"
+install -o root -g root -m 0644 "$stage/board.conf" "$config_file"
+
+render_contract() {
+    local agent_name=$1 fragment=$2 output=$3
+    /usr/local/libexec/freq-ai-setup/render-agent-contract \
+        --agent "$agent_name" --operator "$operator_name" >"$output"
+}
+
+remove_generated_contract() {
+    local path=$1 expected_owner=$2
+    [[ -e $path || -L $path ]] || return 0
+    [[ -f $path && ! -L $path \
+       && $(stat -Lc '%U:%G:%a' "$path") == "$expected_owner:644" \
+       && $(grep -Fc '# Agent contract' "$path") == 1 \
+       && $(grep -Fc '<!-- FREQ_BOARD_WORKFLOW_BEGIN -->' "$path") == 1 ]] || \
+        fail "refusing to remove an unrecognized contract: $path"
+    unlink -- "$path"
+}
+
+upsert_codex_notice() {
+    local agent=$1 path=$2 output=$3
+    [[ -f $path && ! -L $path \
+       && $(stat -Lc '%U:%G:%a' "$path") == "$agent:$agent:600" ]] || \
+        fail "Codex configuration is unavailable or unsafe: $path"
+    python3 - "$path" "$output" <<'PY'
+import pathlib
+import re
+import sys
+import tomllib
+
+source = pathlib.Path(sys.argv[1])
+output = pathlib.Path(sys.argv[2])
+text = source.read_text(encoding="utf-8")
+lines = text.splitlines(keepends=True)
+section_pattern = re.compile(r"^\s*\[\s*notice\s*\]\s*(?:#.*)?$")
+table_pattern = re.compile(r"^\s*\[")
+key_pattern = re.compile(r"^\s*hide_rate_limit_model_nudge\s*=")
+sections = [index for index, line in enumerate(lines)
+            if section_pattern.match(line.rstrip("\r\n"))]
+if len(sections) > 1:
+    raise SystemExit("multiple [notice] sections are not supported")
+setting = "hide_rate_limit_model_nudge = true\n"
+if not sections:
+    if text and not text.endswith(("\n", "\r")):
+        lines[-1] += "\n"
+    if lines and lines[-1].strip():
+        lines.append("\n")
+    lines.extend(["[notice]\n", setting])
+else:
+    start = sections[0] + 1
+    end = len(lines)
+    for index in range(start, len(lines)):
+        if table_pattern.match(lines[index]):
+            end = index
+            break
+    keys = [index for index in range(start, end)
+            if key_pattern.match(lines[index])]
+    if len(keys) > 1:
+        raise SystemExit("duplicate hide_rate_limit_model_nudge keys")
+    if keys:
+        lines[keys[0]] = setting
+    else:
+        lines.insert(start, setting)
+result = "".join(lines)
+tomllib.loads(result)
+output.write_text(result, encoding="utf-8", newline="")
+PY
+    install -o "$agent" -g "$agent" -m 0600 "$output" "$path"
+    [[ $(grep -Ec '^\[notice\]$' "$path") == 1 \
+       && $(grep -Ec '^hide_rate_limit_model_nudge = true$' "$path") == 1 ]] || \
+        fail "Codex notice validation failed: $path"
+}
+
+mapfile -t agents < <(
+    for registry in "$registry_root"/*.conf; do
+        [[ -f $registry && ! -L $registry ]] || continue
+        printf '%s\n' "${registry##*/}"
+    done | sed 's/\.conf$//' | LC_ALL=C sort -u
+)
+
+/usr/local/libexec/freq-ai-setup/configure-stop-guard
+systemctl daemon-reload
+for agent in "${agents[@]}"; do
+    [[ $agent =~ ^[a-z][a-z0-9-]{0,31}$ ]] || \
+        fail "invalid registered agent: $agent"
+    registry="$registry_root/$agent.conf"
+    [[ $(stat -Lc '%U:%G:%a' "$registry") == root:root:644 ]] || \
+        fail "unsafe agent registry: $registry"
+    runtime=$(sed -n "s/^RUNTIME='\([^']*\)'$/\1/p" "$registry")
+    case $runtime in codex|claude) ;; *) fail "invalid runtime for $agent" ;; esac
+    home="/home/$agent"
+    [[ -d $home && ! -L $home && $(stat -Lc '%U:%G:%a' "$home") == "$agent:$agent:700" ]] || \
+        fail "agent home is unavailable or unsafe: $home"
+    install -d -o "$agent" -g "$agent" -m 0700 "/home/freq-agents/session-data/$agent/stop-assessments"
+    runtime_root="$home/.$runtime/skills"
+    install -d -o "$agent" -g "$agent" -m 0700 "$runtime_root"
+    for skill in "${skills[@]}"; do
+        install -d -o "$agent" -g "$agent" -m 0700 "$runtime_root/$skill"
+        install -o "$agent" -g "$agent" -m 0644 \
+            "$installed_skill_root/$skill/SKILL.md" "$runtime_root/$skill/SKILL.md"
+        if [[ $runtime == codex ]]; then
+            install -d -o "$agent" -g "$agent" -m 0700 "$runtime_root/$skill/agents"
+            install -o "$agent" -g "$agent" -m 0644 \
+                "$installed_skill_root/$skill/agents/openai.yaml" \
+                "$runtime_root/$skill/agents/openai.yaml"
+        fi
+    done
+    agent_tools="$master_home/agents/$agent"
+    install -d -o "$master_user" -g "$master_group" -m 0755 \
+        "$master_home/agents" "$agent_tools"
+    pretty="${agent^}"
+    case $runtime in
+        codex)
+            contract_name=AGENTS.md
+            contract_path="$home/.codex/AGENTS.md"
+            behavior_file="$behavior_dir/AGENTS.board.md"
+            stale_operator="$agent_tools/CLAUDE.md"
+            upsert_codex_notice "$agent" "$home/.codex/config.toml" \
+                "$stage/$agent.config.toml"
+            ;;
+        claude)
+            contract_name=CLAUDE.md
+            contract_path="$home/.claude/CLAUDE.md"
+            behavior_file="$behavior_dir/CLAUDE.board.md"
+            stale_operator="$agent_tools/AGENTS.md"
+            ;;
+    esac
+    contract_stage="$stage/$agent.$contract_name"
+    # A setup rerun must not erase an operator-customized role/authority contract.
+    if [[ -e $contract_path || -L $contract_path ]]; then
+        [[ -f $contract_path && ! -L $contract_path ]] || fail "unsafe contract: $contract_path"
+        printf 'CONTRACT_PRESERVED agent=%s path=%s\n' "$agent" "$contract_path"
+    else
+        render_contract "$pretty" "$behavior_file" "$contract_stage"
+        install -o "$agent" -g "$agent" -m 0644 "$contract_stage" "$contract_path"
+    fi
+    if [[ ! -e $agent_tools/$contract_name && ! -L $agent_tools/$contract_name ]]; then
+        install -o "$master_user" -g "$master_group" -m 0644 \
+            "$contract_path" "$agent_tools/$contract_name"
+    fi
+    remove_generated_contract "$home/AGENTS.md" "$agent:$agent"
+    remove_generated_contract "$home/CLAUDE.md" "$agent:$agent"
+    remove_generated_contract "$stale_operator" "$master_user:$master_group"
+    systemctl enable --now "freq-board-alert@$agent.timer"
+done
+
+[[ $(stat -Lc '%U:%G:%a' "$board_root") == root:freq-agents:750 ]] || \
+    fail 'board root metadata validation failed'
+[[ $(stat -Lc '%U:%G:%a' "$board_root/projects") == root:freq-agents:2770 ]] || \
+    fail 'board projects metadata validation failed'
+getfacl -cp "$board_root/projects" | \
+    grep -Fxq "user:$master_user:r-x" || \
+    fail 'master board read ACL validation failed'
+getfacl -cp "$board_root/projects" | \
+    grep -Fxq "default:user:$master_user:r-x" || \
+    fail 'master board default read ACL validation failed'
+for command in "${commands[@]}"; do
+    [[ $(stat -Lc '%U:%G:%a' "$bin_dir/$command") == root:root:755 ]] || \
+        fail "installed command metadata validation failed: $command"
+done
+[[ $(stat -Lc '%U:%G:%a' "$internal_worker") == root:root:755 ]] || \
+    fail 'internal board alert worker metadata validation failed'
+[[ ! -e $bin_dir/board-alert-watch && ! -L $bin_dir/board-alert-watch ]] || \
+    fail 'internal board alert worker remains exposed on agent PATH'
+for skill in "${skills[@]}"; do
+    [[ $(stat -Lc '%U:%G:%a' "$installed_skill_root/$skill/SKILL.md") == root:root:644 ]] || \
+        fail "installed skill metadata validation failed: $skill"
+done
+for library in freq_board.py freq_board_alert.py freq_board_transaction.py freq_board_inspect.py freq_board_dependencies.py freq_dependency_model.py freq_stop_gate.py freq_board_update.py freq_board_pause.py freq_task_identity.py freq_project_migration.py; do
+    [[ $(stat -Lc '%U:%G:%a' "$lib_dir/$library") == root:root:644 ]] || \
+        fail "installed board library metadata validation failed: $library"
+done
+for agent in "${agents[@]}"; do
+    systemctl is-active --quiet "freq-board-alert@$agent.timer" || \
+        fail "board timer is not active for $agent"
+done
+
+printf 'BOARD_SETUP_PASS commands=%s board=%s agents=%s skills=%s timers=%s\n' \
+    "$bin_dir" "$board_root" "${#agents[@]}" "${#skills[@]}" "${#agents[@]}"

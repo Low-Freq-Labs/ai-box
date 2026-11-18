@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ready or Assign Task"
+  short_description: "Unblock work or assign actionable work"
+  default_prompt: "Use $task-ready when this blocked task is now actionable or when ready work must be assigned to an agent."

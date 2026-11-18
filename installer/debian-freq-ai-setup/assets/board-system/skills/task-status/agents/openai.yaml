@@ -1,0 +1,4 @@
+interface:
+  display_name: "Inspect Board Task"
+  short_description: "Show one task's current board state"
+  default_prompt: "Use $task-status to inspect this exact board task without changing it."

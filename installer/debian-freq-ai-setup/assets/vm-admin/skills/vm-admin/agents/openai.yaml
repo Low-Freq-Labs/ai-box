@@ -1,0 +1,4 @@
+interface:
+  display_name: "ai-box VM Administrator"
+  short_description: "Jarvis root maintenance and recovery on ai-box"
+  default_prompt: "Use $vm-admin to diagnose and repair ai-box, then verify the result and record recovery details."

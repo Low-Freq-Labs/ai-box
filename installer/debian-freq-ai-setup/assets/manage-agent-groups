@@ -1,0 +1,69 @@
+#!/usr/bin/python3 -I
+"""Privileged operator entrypoint; never installed in the agents' PATH."""
+import fcntl
+import grp
+import os
+from pathlib import Path
+import sys
+
+sys.path.insert(0, '/opt/freq-agents/discord-connector')
+from freq_groups import GROUPS, NAME, change, load_groups, save_groups
+
+
+def main(args):
+    if os.geteuid() != 0:
+        raise ValueError('only the operator through sudo, or root, may manage groups')
+    if args == ['--help']:
+        print('Usage: agent-groups create NAME | show | AGENT GROUP | AGENT remove GROUP')
+        return
+    # Lifecycle callers already hold the maintenance lock. Internal operations
+    # are root-only and do not reacquire it, avoiding a lock-order deadlock.
+    if len(args) == 2 and args[0] in ('--check-agent-name', '--forget-agent'):
+        groups = load_groups()
+        if args[0] == '--check-agent-name':
+            if args[1] in groups:
+                raise ValueError('agent name already belongs to a Discord group')
+            return
+        changed = False
+        for members in groups.values():
+            if args[1] in members:
+                members.remove(args[1])
+                changed = True
+        if changed:
+            save_groups(groups, discord_gid())
+        return
+    with open('/run/lock/freq-ai-maintenance.lock', 'rb') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError('agent maintenance is running; try again when it finishes') from None
+        groups = load_groups()
+        agents = sorted(p.stem for p in Path('/etc/freq-ai-setup/agents.d').glob('*.conf')
+                        if not p.is_symlink() and p.is_file() and NAME.fullmatch(p.stem))
+        if args in ([], ['show']):
+            print('GROUP  AGENTS')
+            for name, members in sorted(groups.items()):
+                print(name + ': ' + (', '.join(member + (' [unavailable]' if member not in agents else '') for member in members) or '(empty)'))
+            if not groups:
+                print('(no groups created)')
+            assigned = {member for members in groups.values() for member in members}
+            print('Unassigned: ' + (', '.join(a for a in agents if a not in assigned) or '(none)'))
+            return
+        result = change(groups, args, agents)
+        save_groups(groups, discord_gid())
+        print(result)
+
+
+def discord_gid():
+    try:
+        return grp.getgrnam('freq-discord').gr_gid
+    except KeyError:
+        return 0  # setup-discord grants its service read access when configured.
+
+
+if __name__ == '__main__':
+    try:
+        main(sys.argv[1:])
+    except (OSError, ValueError) as error:
+        print(f'agent-groups: {error}', file=sys.stderr)
+        sys.exit(2)

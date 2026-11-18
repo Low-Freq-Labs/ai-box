@@ -1,0 +1,289 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly script_dir="$(cd -- "$(dirname -- "$0")" && pwd -P)"
+readonly installer="$script_dir/install-base.sh"
+readonly base_acceptance="$script_dir/accept-base.sh"
+readonly ai_acceptance="$script_dir/accept-ai-packages.sh"
+failure_phase=preflight
+on_error() {
+    local status=$?
+    printf 'freq-ai-setup failed during %s (exit %s). Correct the reported issue and rerun the same file.\n' \
+        "$failure_phase" "$status" >&2
+    exit "$status"
+}
+trap on_error ERR
+
+master_user=''
+master_home=''
+operator_name=''
+host_label="$(hostname -s | tr '[:lower:]' '[:upper:]')"
+public_key=''
+public_key_temp=''
+cleanup_public_key() { [[ -z $public_key_temp ]] || rm -f -- "$public_key_temp"; }
+trap cleanup_public_key EXIT
+prepare_public_key() {
+    local input=$1
+    [[ -n $input ]] || return 0
+    if [[ $input =~ ^(ssh-|ecdsa-|sk-)[^[:space:]]+[[:space:]] ]]; then
+        [[ $input != *$'\n'* && $input != *$'\r'* ]] || fail 'paste one complete public-key line'
+        public_key_temp=$(mktemp /var/tmp/freq-master-public-key.XXXXXX)
+        chmod 0600 "$public_key_temp"
+        printf '%s\n' "$input" > "$public_key_temp"
+        public_key=$public_key_temp
+    else
+        [[ -f $input && ! -L $input ]] || fail 'paste a public key or enter a regular public-key file path'
+        public_key=$(realpath -e -- "$input")
+    fi
+    # Public keys only: no private keys, authorized_keys options, or key bundles.
+    awk 'NF { n++; if ($1 !~ /^(ssh-|ecdsa-|sk-)/ || NF < 2) bad=1 } END { exit(n != 1 || bad) }' "$public_key" \
+        && ssh-keygen -lf "$public_key" >/dev/null 2>&1 \
+        || fail 'invalid SSH public key; provide one public key, not a private key'
+}
+create_master=0
+assume_yes=0
+interactive=1
+discord_setup=0
+github_setup=0
+coms_source=''
+advanced_paths=0
+mosh_firewall=auto
+tmux_dir=/run/freq-agents/tmux
+coms_root=/var/lib/freq-agents/coms
+board_root=/var/lib/freq-agents/board
+
+usage() {
+    cat <<'EOF'
+Usage: bootstrap-freq-ai-setup [options]
+
+Options:
+  --master-user USER       Existing or new master Linux account
+  --master-home PATH       Master home (default: account home or /home/USER)
+  --operator-name NAME     Name used in agent authority text (default: master user)
+  --host-label LABEL       Banner/tmux host label (default: system hostname)
+  --master-public-key KEY_OR_FILE Master SSH key; also seeds a new agent fleet
+  --create-master          Create the master account when it does not exist
+  --advanced-paths         Prompt for coms and board installation paths
+  --tmux-dir PATH          Shared tmux socket directory
+  --coms-root PATH         Shared communications root
+  --board-root PATH        Shared board root
+  --mosh-firewall MODE     auto, skip, or required (default: auto)
+  --yes                    Accept the final installation confirmation
+  --help                   Show this help
+
+With no options, the installer prompts for all identity choices. It supports a
+clean Debian 13 amd64 system running systemd.
+EOF
+}
+
+fail() { printf 'bootstrap-freq-ai-setup: %s\n' "$*" >&2; exit 2; }
+
+while (($#)); do
+    case $1 in
+        --master-user) [[ $# -ge 2 ]] || fail 'missing value for --master-user'; master_user=$2; shift 2 ;;
+        --master-home) [[ $# -ge 2 ]] || fail 'missing value for --master-home'; master_home=$2; shift 2 ;;
+        --operator-name) [[ $# -ge 2 ]] || fail 'missing value for --operator-name'; operator_name=$2; shift 2 ;;
+        --host-label) [[ $# -ge 2 ]] || fail 'missing value for --host-label'; host_label=$2; shift 2 ;;
+        --master-public-key) [[ $# -ge 2 ]] || fail 'missing value for --master-public-key'; public_key=$2; shift 2 ;;
+        --create-master) create_master=1; shift ;;
+        --advanced-paths) advanced_paths=1; shift ;;
+        --tmux-dir) [[ $# -ge 2 ]] || fail 'missing value for --tmux-dir'; tmux_dir=$2; advanced_paths=1; shift 2 ;;
+        --coms-root) [[ $# -ge 2 ]] || fail 'missing value for --coms-root'; coms_root=$2; advanced_paths=1; shift 2 ;;
+        --board-root) [[ $# -ge 2 ]] || fail 'missing value for --board-root'; board_root=$2; advanced_paths=1; shift 2 ;;
+        --mosh-firewall) [[ $# -ge 2 ]] || fail 'missing value for --mosh-firewall'; mosh_firewall=$2; shift 2 ;;
+        --yes|-y) assume_yes=1; shift ;;
+        --help|-h) usage; exit 0 ;;
+        *) fail "unknown option: $1" ;;
+    esac
+done
+
+[[ $EUID -eq 0 ]] || {
+    printf 'bootstrap-freq-ai-setup must run as root\n' >&2
+    exit 2
+}
+
+source /etc/os-release
+[[ ${ID:-} == debian && ${VERSION_ID:-} == 13 ]] || {
+    printf 'freq-ai-setup supports Debian 13 only\n' >&2
+    exit 2
+}
+[[ $(dpkg --print-architecture) == amd64 ]] || {
+    printf 'freq-ai-setup currently supports amd64 only\n' >&2
+    exit 2
+}
+[[ $(cat /proc/1/comm) == systemd ]] || {
+    printf 'freq-ai-setup requires systemd as PID 1\n' >&2
+    exit 2
+}
+available_kib=$(df -Pk / | awk 'NR==2 {print $4}')
+[[ $available_kib =~ ^[0-9]+$ && $available_kib -ge 8388608 ]] || {
+    printf 'freq-ai-setup requires at least 8 GiB free on / (developer tools and browsers included)\n' >&2
+    exit 2
+}
+if [[ -n $(dpkg --audit) ]]; then
+    printf 'freq-ai-setup found unfinished dpkg work; repair it before setup\n' >&2
+    exit 2
+fi
+
+(( assume_yes == 0 )) || interactive=0
+
+if (( interactive )); then
+    printf 'FREQ-AI-SETUP\nPress Enter for recommended defaults.\n\n'
+fi
+
+mapfile -t candidate_users < <(
+    getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 && $7 !~ /(nologin|false)$/ {print $1}' | LC_ALL=C sort
+)
+default_user=''
+if [[ -n ${SUDO_USER:-} && ${SUDO_USER:-root} != root ]]; then
+    default_user=$SUDO_USER
+elif ((${#candidate_users[@]} == 1)); then
+    default_user=${candidate_users[0]}
+fi
+
+if [[ -z $master_user ]]; then
+    (( interactive )) || [[ -n $default_user ]] || fail '--master-user is required when no single regular user exists'
+    if (( interactive )); then
+        read -r -p "Master Linux user${default_user:+ [$default_user]}: " master_user
+        master_user=${master_user:-$default_user}
+    else
+        master_user=$default_user
+    fi
+fi
+[[ $master_user =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || fail 'master username is invalid'
+operator_name=${operator_name:-$master_user}
+
+if (( interactive )); then
+    read -r -p 'Use advanced coms/board paths? [y/N]: ' answer
+    [[ $answer == y || $answer == Y ]] && advanced_paths=1
+fi
+
+master_existed=0
+if getent passwd "$master_user" >/dev/null; then
+    master_existed=1
+    account_home=$(getent passwd "$master_user" | cut -d: -f6)
+    if (( interactive && advanced_paths )); then
+        read -r -p "Master home [$account_home]: " answer
+        master_home=${answer:-${master_home:-$account_home}}
+    else
+        master_home=${master_home:-$account_home}
+    fi
+    [[ $master_home == "$account_home" ]] || fail "master home does not match account: $account_home"
+else
+    master_home=${master_home:-/home/$master_user}
+    if (( interactive )); then
+        read -r -p "Account $master_user does not exist. Create it? [y/N]: " answer
+        [[ $answer == y || $answer == Y ]] || fail 'master account creation cancelled'
+        create_master=1
+    fi
+    (( create_master )) || fail 'master account is absent; use --create-master'
+    if (( interactive && advanced_paths )); then
+        read -r -p "Master home [$master_home]: " answer
+        master_home=${answer:-$master_home}
+    fi
+fi
+
+if (( interactive )); then
+    read -r -p "Operator display name [$operator_name]: " answer
+    operator_name=${answer:-$operator_name}
+    read -r -p "Terminal host label [$host_label]: " answer
+    host_label=${answer:-$host_label}
+    read -r -p 'Master SSH public key or file path [skip]: ' answer
+    public_key=${answer:-$public_key}
+    read -r -p 'Updated coms source folder [Enter uses bundled version]: ' coms_source
+    if [[ -n $coms_source ]]; then
+        coms_source=$(realpath -e -- "$coms_source")
+        [[ -f $coms_source/bin/dev-msg ]] || fail 'choose the coms-system folder containing bin/dev-msg'
+    fi
+    read -r -p 'Connect a Discord bot after installation? [y/N]: ' answer
+    [[ $answer != y && $answer != Y ]] || discord_setup=1
+    read -r -p 'Set up shared GitHub access after installation? [y/N]: ' answer
+    [[ $answer != y && $answer != Y ]] || github_setup=1
+    if (( advanced_paths )); then
+        read -r -p "Shared tmux socket directory [$tmux_dir]: " answer
+        tmux_dir=${answer:-$tmux_dir}
+        read -r -p "Shared communications root [$coms_root]: " answer
+        coms_root=${answer:-$coms_root}
+        read -r -p "Shared board root [$board_root]: " answer
+        board_root=${answer:-$board_root}
+        read -r -p 'Mosh guest-firewall handling [auto/skip/required] [auto]: ' answer
+        mosh_firewall=${answer:-$mosh_firewall}
+    fi
+fi
+
+[[ $operator_name =~ ^[A-Za-z_][A-Za-z0-9._\ -]{0,63}$ ]] || fail 'operator display name is invalid'
+[[ $host_label =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$ ]] || fail 'terminal host label is invalid'
+case $mosh_firewall in auto|skip|required) ;; *) fail 'Mosh firewall mode must be auto, skip, or required' ;; esac
+for path in "$tmux_dir" "$coms_root" "$board_root"; do
+    [[ $path == /* && $path != / && $path != *$'\n'* && $path != *$'\r'* \
+       && $path =~ ^/[A-Za-z0-9._/+\ -]+$ ]] || fail "invalid shared path: $path"
+done
+tmux_dir=$(realpath -m -- "$tmux_dir")
+coms_root=$(realpath -m -- "$coms_root")
+board_root=$(realpath -m -- "$board_root")
+[[ $tmux_dir == /run/freq-agents/tmux || $tmux_dir == /run/freq-agents/tmux/* ]] \
+    || fail 'tmux path must remain under /run/freq-agents/tmux'
+[[ $coms_root == /var/lib/freq-agents/coms || $coms_root == /var/lib/freq-agents/coms/* ]] \
+    || fail 'communications path must remain under /var/lib/freq-agents/coms'
+[[ $board_root == /var/lib/freq-agents/board || $board_root == /var/lib/freq-agents/board/* ]] \
+    || fail 'board path must remain under /var/lib/freq-agents/board'
+prepare_public_key "$public_key"
+
+printf '\nReady to install\n'
+printf '  Master user:   %s\n' "$master_user"
+printf '  Master home:   %s\n' "$master_home"
+printf '  Operator name: %s\n' "$operator_name"
+printf '  Host label:    %s\n' "$host_label"
+printf '  Create master: %s\n' "$([[ $master_existed == 0 ]] && printf yes || printf no)"
+printf '  Public key:    %s\n' "$([[ -n $public_key ]] && printf validated || printf preserve/skip)"
+printf '  Path mode:     %s\n' "$([[ $advanced_paths == 1 ]] && printf advanced || printf standard)"
+printf '  Mosh firewall: %s\n' "$mosh_firewall"
+printf '  Tmux sockets:  %s\n' "$tmux_dir"
+printf '  Communications: %s\n' "$coms_root"
+printf '  Board:         %s\n' "$board_root"
+printf '  Includes: Debian tools, prompt/tmux, isolation, shared AI toolchain, coms, and board\n\n'
+
+if (( ! assume_yes )); then
+    read -r -p 'Install this FREQ-AI-SETUP baseline? [y/N]: ' answer
+    [[ $answer == y || $answer == Y ]] || { printf 'Cancelled.\n'; exit 1; }
+fi
+
+failure_phase=installation
+FREQ_MASTER_USER=$master_user \
+FREQ_MASTER_HOME=$master_home \
+FREQ_OPERATOR_NAME=$operator_name \
+FREQ_HOST=$host_label \
+FREQ_CREATE_MASTER=$create_master \
+FREQ_MASTER_PUBLIC_KEY=$public_key \
+FREQ_ADVANCED_PATHS=$advanced_paths \
+FREQ_MOSH_FIREWALL=$mosh_firewall \
+FREQ_COMS_TMUX_DEFAULT=$tmux_dir \
+FREQ_COMS_ROOT_DEFAULT=$coms_root \
+FREQ_COMS_SOURCE=$coms_source \
+FREQ_BOARD_ROOT_DEFAULT=$board_root \
+    /bin/bash "$installer"
+
+if (( master_existed == 0 && interactive )); then
+    read -r -p "Set a password for $master_user now? [Y/n]: " answer
+    if [[ $answer != n && $answer != N ]]; then
+        passwd "$master_user"
+    elif [[ -z $public_key ]]; then
+        printf 'WARNING: %s remains locked and has no installed SSH key.\n' "$master_user" >&2
+    fi
+fi
+
+failure_phase=acceptance
+/bin/bash "$base_acceptance"
+/bin/bash "$ai_acceptance"
+if (( github_setup )); then
+    failure_phase=github-setup
+    /usr/local/libexec/freq-ai-setup/configure-shared-git
+fi
+if (( discord_setup )); then
+    failure_phase=discord-setup
+    /usr/local/libexec/freq-ai-setup/setup-discord
+fi
+trap - ERR
+
+printf 'AI_FREQ_SETUP_READY master=%s host=%s agents_created=0\n' \
+    "$master_user" "$host_label"

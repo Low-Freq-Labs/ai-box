@@ -1,0 +1,6 @@
+#!/bin/bash
+set -euo pipefail
+if (( EUID )); then
+    exec sudo -- /usr/local/libexec/freq-ai-setup/configure-master-ssh-key "$@"
+fi
+exec /usr/local/libexec/freq-ai-setup/configure-master-ssh-key "$@"

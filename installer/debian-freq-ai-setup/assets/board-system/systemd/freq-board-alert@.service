@@ -1,0 +1,13 @@
+[Unit]
+Description=FREQ board alert check for %i
+After=network.target
+
+[Service]
+Type=oneshot
+User=%i
+Group=freq-agents
+SupplementaryGroups=freq-agents
+UMask=0007
+RuntimeDirectory=freq-agents/board-alert/%i
+RuntimeDirectoryMode=0770
+ExecStart=/usr/local/bin/board-alert-watch

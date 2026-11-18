@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import json
 import pathlib
 import stat
 import subprocess
@@ -73,6 +74,14 @@ class ProjectAssignTests(unittest.TestCase):
 
     def test_inactive_removes_only_an_empty_agent_queue(self):
         self.assert_ok(self.run_command(PROJECT_ASSIGN, "PVE-FREQ", "active"))
+        # Current inactivity requires an actual assessment, even for an empty queue.
+        template = self.run_command(ROOT / "bin" / "project-assess", "PVE-FREQ", "--template")
+        self.assert_ok(template)
+        assessment = json.loads(template.stdout)
+        assessment["summary"] = "Empty fixture project inspected; no remaining tasks or prerequisites."
+        path = pathlib.Path(self.temp.name) / "assessment.json"
+        path.write_text(json.dumps(assessment))
+        self.assert_ok(self.run_command(ROOT / "bin" / "project-assess", "PVE-FREQ", "--submit", str(path)))
         inactive = self.run_command(PROJECT_ASSIGN, "PVE-FREQ", "inactive")
         self.assert_ok(inactive)
         self.assertEqual(inactive.stdout, "ASSIGNMENT: finn -> inactive/PVE-FREQ\n")
@@ -94,7 +103,16 @@ class ProjectAssignTests(unittest.TestCase):
         result = self.run_command(PROJECT_ASSIGN, "PVE-FREQ", "inactive")
 
         self.assertEqual(result.returncode, 1)
-        self.assertIn("cannot become inactive while active tasks remain", result.stderr)
+        self.assertIn("missing assessment", result.stderr)
+        rejected = self.run_command(ROOT / "bin" / "project-assess", "PVE-FREQ", "--template")
+        self.assert_ok(rejected)
+        assessment = json.loads(rejected.stdout)
+        assessment["summary"] = "Owned work is deliberately retained in this refusal fixture."
+        path = pathlib.Path(self.temp.name) / "owned-assessment.json"
+        path.write_text(json.dumps(assessment))
+        submitted = self.run_command(ROOT / "bin" / "project-assess", "PVE-FREQ", "--submit", str(path))
+        self.assertNotEqual(submitted.returncode, 0)
+        self.assertIn("owned active work remains", submitted.stderr)
         self.assertTrue((self.project / "active" / "finn" / "Backend work.md").is_file())
 
     def test_task_assignment_auto_activates_recipient(self):

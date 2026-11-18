@@ -1,0 +1,14 @@
+[Unit]
+Description=Private FREQ container socket for %i
+
+[Socket]
+ListenStream=/run/freq-containers/%i/worker.sock
+SocketUser=%i
+SocketGroup=%i
+SocketMode=0600
+DirectoryMode=0700
+RemoveOnStop=yes
+Backlog=16
+
+[Install]
+WantedBy=sockets.target

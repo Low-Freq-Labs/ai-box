@@ -1,0 +1,4 @@
+interface:
+  display_name: "Read Dev Message"
+  short_description: "Read one exact unread agent message"
+  default_prompt: "Use $dev-read to read this exact agent message file."

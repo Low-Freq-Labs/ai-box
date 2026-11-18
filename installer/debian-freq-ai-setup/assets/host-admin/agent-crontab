@@ -1,0 +1,55 @@
+#!/usr/bin/python3 -I
+"""Own-user scheduler access through the peer-authenticated ai-box broker."""
+import argparse
+import json
+from pathlib import Path
+import socket
+import sys
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest='action', required=True)
+    sub.add_parser('show', help='JSON: exists, content and current table fingerprint')
+    for verb in ('install', 'remove'):
+        p = sub.add_parser(verb)
+        p.add_argument('--expected-sha256', required=True)
+        if verb == 'install':
+            p.add_argument('file', help='UTF-8 crontab file, or - for stdin (max 8192 bytes)')
+    args = vars(parser.parse_args())
+    if args['action'] == 'install':
+        filename = args.pop('file')
+        if filename == '-':
+            raw = sys.stdin.buffer.read(8193)
+        else:
+            with open(filename, 'rb') as stream:
+                raw = stream.read(8193)
+        if len(raw) > 8192:
+            raise ValueError('crontab exceeds 8192 bytes')
+        args['content'] = raw.decode('utf-8')
+    args['area'] = 'own-crontab'
+    data = json.dumps(args).encode()
+    if len(data) > 65536:
+        raise ValueError('request too large')
+    with socket.socket(socket.AF_UNIX) as sock:
+        sock.settimeout(60)
+        sock.connect('/run/freq-host-admin.sock')
+        sock.sendall(data)
+        sock.shutdown(socket.SHUT_WR)
+        reply = bytearray()
+        while part := sock.recv(4096):
+            reply.extend(part)
+            if len(reply) > 65536:
+                raise ValueError('response too large; inspect current table without replay')
+    result = json.loads(reply)
+    if not result['ok']:
+        raise ValueError(result['message'])
+    print(result['message'])
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError, KeyError) as error:
+        print(f'agent-crontab: {error}', file=sys.stderr)
+        sys.exit(2)

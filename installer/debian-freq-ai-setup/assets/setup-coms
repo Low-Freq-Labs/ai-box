@@ -1,0 +1,224 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly default_source=/opt/freq-agents/coms-system
+readonly default_bin=/usr/local/bin
+readonly default_tmux=${FREQ_COMS_TMUX_DEFAULT:-/run/freq-agents/tmux}
+readonly default_coms=${FREQ_COMS_ROOT_DEFAULT:-/var/lib/freq-agents/coms}
+readonly agent_group=freq-agents
+readonly config_file=/etc/freq-ai-setup/coms.conf
+readonly registry_root=/etc/freq-ai-setup/agents.d
+readonly installed_skill_root=/opt/freq-agents/skills
+
+use_defaults=0
+assume_yes=0
+
+usage() {
+    cat <<'EOF'
+Usage: setup-coms [--defaults] [--yes]
+
+Interactively installs the FREQ agent communication commands and prepares the
+shared tmux socket and message paths. --defaults skips path prompts; --yes skips
+the final confirmation. Run with no options for the normal interactive setup.
+
+For FREQ-AI-SETUP sandbox compatibility, the tmux path must remain at or below
+/run/freq-agents/tmux and the message path at or below
+/var/lib/freq-agents/coms.
+EOF
+}
+
+fail() { printf 'setup-coms: %s\n' "$*" >&2; exit 2; }
+
+while (($#)); do
+    case $1 in
+        --defaults) use_defaults=1 ;;
+        --yes|-y) assume_yes=1 ;;
+        --help|-h) usage; exit 0 ;;
+        *) usage >&2; fail "unknown option: $1" ;;
+    esac
+    shift
+done
+
+if [[ $EUID -ne 0 ]]; then
+    sudo_args=()
+    ((use_defaults)) && sudo_args+=(--defaults)
+    ((assume_yes)) && sudo_args+=(--yes)
+    exec sudo -- "$0" "${sudo_args[@]}"
+fi
+
+prompt_path() {
+    local label=$1 default=$2 reply
+    read -r -p "$label [$default]: " reply
+    printf '%s' "${reply:-$default}"
+}
+
+validate_path() {
+    local label=$1 value=$2
+    [[ $value == /* ]] || fail "$label must be an absolute path"
+    [[ $value != / ]] || fail "$label may not be filesystem root"
+    [[ $value != *$'\n'* && $value != *$'\r'* ]] || fail "$label contains a line break"
+    [[ $value =~ ^/[A-Za-z0-9._/+\ -]+$ ]] || fail "$label contains unsupported characters"
+}
+
+is_at_or_below() {
+    local path=${1%/} parent=${2%/}
+    [[ $path == "$parent" || $path == "$parent/"* ]]
+}
+
+if ((use_defaults)); then
+    source_dir=$default_source
+    bin_dir=$default_bin
+    tmux_dir=$default_tmux
+    coms_root=$default_coms
+else
+    printf '%s\n' 'FREQ communications setup'
+    printf '%s\n' 'Press Enter to accept each recommended path.'
+    source_dir=$(prompt_path 'Coms source directory' "$default_source")
+    bin_dir=$(prompt_path 'Command install directory' "$default_bin")
+    tmux_dir=$(prompt_path 'Shared tmux socket directory' "$default_tmux")
+    coms_root=$(prompt_path 'Shared message root' "$default_coms")
+fi
+
+for pair in \
+    "source directory|$source_dir" \
+    "command install directory|$bin_dir" \
+    "tmux socket directory|$tmux_dir" \
+    "message root|$coms_root"; do
+    validate_path "${pair%%|*}" "${pair#*|}"
+done
+
+source_dir=$(realpath -m -- "$source_dir")
+bin_dir=$(realpath -m -- "$bin_dir")
+tmux_dir=$(realpath -m -- "$tmux_dir")
+coms_root=$(realpath -m -- "$coms_root")
+
+is_at_or_below "$tmux_dir" /run/freq-agents/tmux || \
+    fail 'tmux socket directory must be /run/freq-agents/tmux or one of its descendants'
+is_at_or_below "$coms_root" /var/lib/freq-agents/coms || \
+    fail 'message root must be /var/lib/freq-agents/coms or one of its descendants'
+getent group "$agent_group" >/dev/null || fail "required group does not exist: $agent_group"
+
+commands=(dev-msg dev-read dev-inbox dev-drain agent-team)
+skills=(dev-msg dev-msg-status dev-inbox dev-read dev-drain agent-team)
+for source_file in "$source_dir/lib/freq_coms_receipts.py" "$source_dir/bin/dev-msg-status"; do
+    [[ -f $source_file && ! -L $source_file && -r $source_file ]] || fail "missing or unsafe source: $source_file"
+    python3 -c 'import ast,sys; ast.parse(open(sys.argv[1],encoding="utf-8").read())' "$source_file"
+done
+for command in "${commands[@]}"; do
+    source_file="$source_dir/bin/$command"
+    [[ -f $source_file && ! -L $source_file && -r $source_file ]] || \
+        fail "source command is missing, unreadable, or a symlink: $source_file"
+    bash -n "$source_file" || fail "source command failed Bash syntax validation: $source_file"
+done
+for skill in "${skills[@]}"; do
+    for skill_file in SKILL.md agents/openai.yaml; do
+        source_file="$source_dir/skills/$skill/$skill_file"
+        [[ -f $source_file && ! -L $source_file && -r $source_file ]] || \
+            fail "source skill file is missing, unreadable, or a symlink: $source_file"
+    done
+done
+
+printf '\nSource:       %s\n' "$source_dir"
+printf 'Commands:     %s\n' "$bin_dir"
+printf 'Tmux sockets: %s\n' "$tmux_dir"
+printf 'Messages:     %s\n' "$coms_root"
+printf 'Agent group:  %s\n\n' "$agent_group"
+if ((!assume_yes)); then
+    read -r -p 'Install this communications layout? [y/N]: ' answer
+    [[ $answer == y || $answer == Y ]] || { printf 'Cancelled.\n'; exit 1; }
+fi
+
+install -d -o root -g root -m 0755 /etc/freq-ai-setup
+install -d -o root -g root -m 0755 "$bin_dir"
+install -d -o root -g root -m 0755 "$bin_dir/../lib"
+install -o root -g root -m 0644 "$source_dir/lib/freq_coms_receipts.py" "$bin_dir/../lib/freq_coms_receipts.py"
+install -o root -g root -m 0755 "$source_dir/bin/dev-msg-status" "$bin_dir/dev-msg-status"
+install -d -o root -g "$agent_group" -m 0750 /run/freq-agents
+install -d -o root -g "$agent_group" -m 2770 "$tmux_dir"
+install -d -o root -g "$agent_group" -m 0750 /var/lib/freq-agents
+install -d -o root -g "$agent_group" -m 0750 "$coms_root"
+install -d -o root -g "$agent_group" -m 0750 /var/lib/freq-agents/discord
+install -d -o root -g "$agent_group" -m 2770 /var/lib/freq-agents/discord/outbox
+
+stage=$(mktemp -d)
+cleanup() { rm -rf -- "$stage"; }
+trap cleanup EXIT HUP INT TERM
+
+for command in "${commands[@]}"; do
+    sed \
+        -e "s|^readonly DEFAULT_TMUX_DIR=.*$|readonly DEFAULT_TMUX_DIR='$tmux_dir'|" \
+        -e "s|^readonly DEFAULT_COMS_ROOT=.*$|readonly DEFAULT_COMS_ROOT='$coms_root'|" \
+        "$source_dir/bin/$command" >"$stage/$command"
+    bash -n "$stage/$command"
+    install -o root -g root -m 0755 "$stage/$command" "$bin_dir/$command"
+done
+for skill in "${skills[@]}"; do
+    install -d -o root -g root -m 0755 "$installed_skill_root/$skill/agents"
+    install -o root -g root -m 0644 "$source_dir/skills/$skill/SKILL.md" \
+        "$installed_skill_root/$skill/SKILL.md"
+    install -o root -g root -m 0644 "$source_dir/skills/$skill/agents/openai.yaml" \
+        "$installed_skill_root/$skill/agents/openai.yaml"
+done
+
+{
+    printf "FREQ_COMS_TMUX_DIR='%s'\n" "$tmux_dir"
+    printf "FREQ_COMS_ROOT='%s'\n" "$coms_root"
+    printf "FREQ_COMS_BIN_DIR='%s'\n" "$bin_dir"
+} >"$stage/coms.conf"
+install -o root -g root -m 0644 "$stage/coms.conf" "$config_file"
+
+mapfile -t agents < <(getent group "$agent_group" | cut -d: -f4 | tr ',' '\n' | sed '/^$/d' | LC_ALL=C sort -u)
+for agent in "${agents[@]}"; do
+    [[ $agent != freq-discord ]] || continue
+    [[ $agent =~ ^[a-z][a-z0-9-]{0,31}$ ]] || fail "invalid account in $agent_group: $agent"
+    getent passwd "$agent" >/dev/null || fail "group member has no account: $agent"
+    registry="$registry_root/$agent.conf"
+    [[ -f $registry && ! -L $registry \
+       && $(stat -Lc '%U:%G:%a' "$registry") == root:root:644 ]] || \
+        fail "agent registry is unavailable or unsafe: $registry"
+    runtime=$(sed -n "s/^RUNTIME='\([^']*\)'$/\1/p" "$registry")
+    case $runtime in codex|claude) ;; *) fail "invalid runtime for $agent" ;; esac
+    home="/home/$agent"
+    [[ -d $home && ! -L $home \
+       && $(stat -Lc '%U:%G:%a' "$home") == "$agent:$agent:700" ]] || \
+        fail "agent home is unavailable or unsafe: $home"
+    agent_root="$coms_root/$agent"
+    install -d -o "$agent" -g "$agent_group" -m 2750 "$agent_root"
+    install -d -o "$agent" -g "$agent_group" -m 2770 "$agent_root/inbox" "$agent_root/read" "$agent_root/media"
+    setfacl -m u::rwx,g::rwx,m::rwx,o::---,d:u::rwx,d:g::rwx,d:m::rwx,d:o::--- \
+        "$agent_root/inbox" "$agent_root/read" "$agent_root/media"
+    runtime_root="$home/.$runtime/skills"
+    install -d -o "$agent" -g "$agent" -m 0700 "$runtime_root"
+    for skill in "${skills[@]}"; do
+        install -d -o "$agent" -g "$agent" -m 0700 "$runtime_root/$skill"
+        install -o "$agent" -g "$agent" -m 0644 \
+            "$installed_skill_root/$skill/SKILL.md" "$runtime_root/$skill/SKILL.md"
+        if [[ $runtime == codex ]]; then
+            install -d -o "$agent" -g "$agent" -m 0700 "$runtime_root/$skill/agents"
+            install -o "$agent" -g "$agent" -m 0644 \
+                "$installed_skill_root/$skill/agents/openai.yaml" \
+                "$runtime_root/$skill/agents/openai.yaml"
+        fi
+        [[ $(stat -Lc '%U:%G:%a' "$runtime_root/$skill/SKILL.md") == "$agent:$agent:644" ]] || \
+            fail "agent skill metadata validation failed: $agent/$skill"
+    done
+done
+
+[[ $(stat -Lc '%U:%G:%a' "$tmux_dir") == "root:$agent_group:2770" ]] || \
+    fail 'tmux socket directory metadata validation failed'
+[[ $(stat -Lc '%U:%G:%a' "$coms_root") == "root:$agent_group:750" ]] || \
+    fail 'message root metadata validation failed'
+for command in "${commands[@]}"; do
+    [[ $(stat -Lc '%U:%G:%a' "$bin_dir/$command") == root:root:755 ]] || \
+        fail "installed command metadata validation failed: $command"
+    bash -n "$bin_dir/$command"
+done
+for skill in "${skills[@]}"; do
+    [[ $(stat -Lc '%U:%G:%a' "$installed_skill_root/$skill/SKILL.md") == root:root:644 ]] || \
+        fail "installed skill metadata validation failed: $skill"
+    [[ $(stat -Lc '%U:%G:%a' "$installed_skill_root/$skill/agents/openai.yaml") == root:root:644 ]] || \
+        fail "installed skill interface validation failed: $skill"
+done
+
+printf 'COMS_SETUP_PASS commands=%s socket=%s messages=%s agents=%s skills=%s\n' \
+    "$bin_dir" "$tmux_dir" "$coms_root" "${#agents[@]}" "${#skills[@]}"

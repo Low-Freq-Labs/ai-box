@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+"""Durable record rotation only; never claims Git, board, or session completion."""
+import argparse
+import datetime
+import fcntl
+import os
+from pathlib import Path
+import pwd
+import re
+import stat
+import sys
+import uuid
+
+ROOT = Path("/home/freq-agents/session-data")
+KINDS = ("session-state",)
+FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+LIMIT = 1024 * 1024
+
+
+def directory(parent, name):
+    created = False
+    try:
+        os.mkdir(name, 0o2770, dir_fd=parent)
+        created = True
+    except FileExistsError:
+        pass
+    fd = os.open(name, FLAGS, dir_fd=parent)
+    if created:
+        os.fchmod(fd, 0o2770)
+    return fd
+
+
+def open_root(path):
+    # Installer provisions this shared root; agents only create their own lanes.
+    return os.open(path, FLAGS)
+
+
+def read_record(fd, name):
+    handle = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+    try:
+        info = os.fstat(handle)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise ValueError(f"not an ordinary unlinked record: {name}")
+        with os.fdopen(handle, "rb", closefd=False) as stream:
+            data = stream.read(LIMIT + 1)
+        if len(data) > LIMIT or not data.strip() or b"\x00" in data:
+            raise ValueError(f"record must be nonempty UTF-8 Markdown <= 1 MiB: {name}")
+        data.decode("utf-8")
+        return data
+    finally:
+        os.close(handle)
+
+
+def save(root, agent, drafts=None):
+    if drafts is not None and len(drafts) != 1:
+        raise ValueError("save requires exactly one session-state draft")
+    base = open_root(root)
+    agent_fd = directory(base, agent)
+    os.close(base)
+    opened = []
+    try:
+        fcntl.flock(agent_fd, fcntl.LOCK_EX)
+        for kind in KINDS:
+            current = directory(agent_fd, kind)
+            opened.append(current)
+            archive = directory(current, "archive")
+            opened.append(archive)
+        if drafts is None:
+            return []
+        # Preflight the payload and every destination before publishing anything.
+        payloads = [read_record(None, str(Path(p).absolute())) for p in drafts]
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        plan = []
+        for index, kind in enumerate(KINDS):
+            current, archive = opened[index * 2:index * 2 + 2]
+            old = []
+            for name in os.listdir(current):
+                if name == "archive":
+                    continue
+                if not re.fullmatch(re.escape(kind) + r"-[0-9TZ.]+\.md", name):
+                    raise ValueError(f"unexpected state entry: {name}")
+                read_record(current, name)
+                try:
+                    os.stat(name, dir_fd=archive, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise ValueError(f"archive collision: {name}")
+                old.append(name)
+            plan.append((current, archive, f"{kind}-{stamp}.md", old, payloads[index]))
+        # Write/fsync/read back the replacement before archiving prior state.
+        for current, archive, name, old, data in plan:
+            temp = f".pending-{uuid.uuid4().hex}"
+            handle = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                             0o660, dir_fd=current)
+            try:
+                with os.fdopen(handle, "wb") as stream:
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                if read_record(current, temp) != data:
+                    raise OSError("record verification failed")
+                os.link(temp, name, src_dir_fd=current, dst_dir_fd=current,
+                        follow_symlinks=False)
+            finally:
+                os.unlink(temp, dir_fd=current)
+            os.fsync(current)
+        for current, archive, name, old, data in plan:
+            for previous in old:
+                # Exclusive link then unlink: never overwrite historical evidence.
+                os.link(previous, previous, src_dir_fd=current, dst_dir_fd=archive,
+                        follow_symlinks=False)
+                os.fsync(archive)
+                os.unlink(previous, dir_fd=current)
+            os.fsync(current)
+        return [root / agent / kind / item[2] for kind, item in zip(KINDS, plan)]
+    finally:
+        for fd in reversed(opened):
+            os.close(fd)
+        os.close(agent_fd)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("init", "save"))
+    parser.add_argument("drafts", nargs="*")
+    args = parser.parse_args()
+    if len(args.drafts) != (1 if args.action == "save" else 0):
+        parser.error("save requires one session-state draft path; init takes none")
+    agent = pwd.getpwuid(os.getuid()).pw_name
+    if os.getuid() == 0 or not re.fullmatch(r"[a-z][a-z0-9_-]*", agent):
+        parser.error("run as the agent, never root")
+    try:
+        paths = save(ROOT, agent, args.drafts if args.action == "save" else None)
+        print("STATE_SAVED" if paths else "STATE_READY")
+        for path in paths:
+            print(path)
+    except (OSError, ValueError) as error:
+        print(f"STATE_FAILED: {error}; previous evidence is retained; inspect before retry.",
+              file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

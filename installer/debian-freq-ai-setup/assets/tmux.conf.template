@@ -1,0 +1,41 @@
+# NEXUS / LOW FREQ Labs Debian FREQ-AI-SETUP tmux identity.
+set-option -g default-terminal "tmux-256color"
+set-option -as terminal-features ",xterm-256color:RGB"
+set-option -g history-limit 100000
+set-option -g mouse on
+set-option -g focus-events on
+set-option -g escape-time 10
+set-option -g repeat-time 400
+set-option -g set-clipboard external
+set-option -g allow-rename off
+set-option -g automatic-rename off
+set-option -g renumber-windows on
+set-option -g base-index 0
+set-window-option -g pane-base-index 0
+set-window-option -g mode-keys vi
+
+set-option -g @fq_name "__NAME__"
+set-option -g @fq_colour "__COLOUR__"
+set-option -g pane-border-status top
+set-option -g pane-border-lines heavy
+set-option -g pane-border-style "fg=#374151,bg=default"
+set-option -g pane-active-border-style "fg=#{@fq_colour},bg=default"
+set-option -g pane-border-format " #[fg=#{@fq_colour},bold]#{@fq_name} #[default]"
+
+set-option -g status on
+set-option -g status-position bottom
+set-option -g status-interval 5
+set-option -g status-justify centre
+set-option -g status-style "fg=#BEBEBE,bg=#080B12"
+set-option -g status-left-length 40
+set-option -g status-right-length 48
+set-option -g status-left "#[fg=#FBBF24,bold] ◆ NEXUS ◆ #[fg=#{@fq_colour},bold]#{@fq_name} #[default]"
+set-option -g status-right "#[fg=#D1D5DB]__HOST__  %I:%M %p  %b %d #[default]"
+set-option -g window-status-separator ""
+set-window-option -g window-status-format ""
+set-window-option -g window-status-current-format ""
+set-window-option -g window-status-activity-style "fg=#FBBF24,bg=#080B12,bold"
+set-option -g message-style "fg=#F9FAFB,bg=#4C1D95,bold"
+set-option -g message-command-style "fg=#F9FAFB,bg=#4C1D95,bold"
+set-window-option -g mode-style "fg=#080B12,bg=#A855F7,bold"
+set-window-option -g clock-mode-colour "#A855F7"

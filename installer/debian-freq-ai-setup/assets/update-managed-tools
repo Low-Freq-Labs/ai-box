@@ -1,0 +1,367 @@
+#!/usr/bin/python3
+"""Internal release planner/updater. Public entrypoint is full-update."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import urllib.parse
+import urllib.request
+
+DEV = Path('/opt/freq-agents/devtools')
+HELPERS = Path('/usr/local/share/freq-ai-setup/devtools')
+NODE = Path('/opt/freq-agents/toolchain')
+NPM = Path('/opt/freq-agents/npm-global')
+
+
+def run(*argv, capture=False, **kwargs):
+    return subprocess.run(argv, check=True, text=True, timeout=1800,
+                          stdout=subprocess.PIPE if capture else None, **kwargs).stdout
+
+
+def fetch(url):
+    request = urllib.request.Request(url, headers={'User-Agent': 'FREQ-AI-SETUP'})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        if not response.url.startswith('https://'):
+            raise RuntimeError('insecure metadata redirect')
+        data = response.read(32 * 1024 * 1024 + 1)
+        if len(data) > 32 * 1024 * 1024:
+            raise RuntimeError('metadata exceeds limit')
+        return data
+
+
+def version(text):
+    match = re.fullmatch(r'v?(\d+)\.(\d+)\.(\d+)', text)
+    if not match:
+        raise RuntimeError(f'unsupported stable version: {text}')
+    return tuple(map(int, match.groups()))
+
+
+def compatible(current, candidates):
+    current_v = version(current)
+    valid = []
+    for candidate in candidates:
+        try:
+            v = version(candidate)
+        except RuntimeError:
+            continue
+        # In 0.x, a minor increase may break compatibility.
+        if v[0] == current_v[0] and (v[0] != 0 or v[1] == current_v[1]) and v >= current_v:
+            valid.append(candidate)
+    return max(valid, key=version) if valid else current
+
+
+def npm_candidate(name, current):
+    data = json.loads(fetch('https://registry.npmjs.org/' + urllib.parse.quote(name, safe='')))
+    return compatible(current, data['versions'])
+
+
+def plan():
+    node = (NODE / 'node-current').resolve()
+    current_node = run(str(node / 'bin/node'), '--version', capture=True).strip()
+    releases = json.loads(fetch('https://nodejs.org/dist/index.json'))
+    next_node = compatible(current_node, [r['version'] for r in releases if r.get('lts')])
+    current_npm = json.loads((node / 'lib/node_modules/npm/package.json').read_text())['version']
+    result = {'node': next_node, 'npm': npm_candidate('npm', current_npm), 'ai': {}, 'global': {}, 'held': []}
+    for name in ('@openai/codex', '@anthropic-ai/claude-code'):
+        # Runtime CLI releases are maintained through their official latest channel.
+        result['ai'][name] = json.loads(fetch('https://registry.npmjs.org/' + urllib.parse.quote(name, safe='') + '/latest'))['version']
+        version(result['ai'][name])
+    for package_file in sorted((NPM / 'lib/node_modules').glob('*/package.json')) + sorted((NPM / 'lib/node_modules').glob('@*/*/package.json')):
+        package = json.loads(package_file.read_text())
+        if package['name'] in (*result['ai'], 'npm', 'corepack'):
+            result['held'].append(package['name'] + ': duplicate/shared runtime prefix; inspect manually')
+            continue
+        result['global'][package['name']] = npm_candidate(package['name'], package['version'])
+    manifests = DEV / 'current/manifests'
+    if not manifests.is_dir():
+        manifests = HELPERS / 'packages'
+    result['manifest_source'] = str(manifests.resolve())
+    result['binaries'] = json.loads((manifests / 'binaries.json').read_text())
+    for tool in result['binaries']['tools']:
+        parts = urllib.parse.urlparse(tool['url']).path.strip('/').split('/')
+        if len(parts) < 6 or parts[2:4] != ['releases', 'download']:
+            raise RuntimeError('unexpected upstream release URL')
+        release = json.loads(fetch('https://api.github.com/repos/' + '/'.join(parts[:2]) + '/releases/latest'))
+        tag = release['tag_name']
+        old_version = re.search(r'\d+\.\d+\.\d+', tool['version'])[0]
+        new_version = re.search(r'\d+\.\d+\.\d+', tag)[0]
+        if compatible(old_version, [new_version]) != new_version:
+            result['held'].append(f'{tool["name"]}: {tag} needs a compatibility/major-version review')
+            continue
+        if version(new_version) <= version(old_version):
+            continue
+        wanted = Path(parts[-1]).name.replace(old_version, new_version)
+        assets = [a for a in release['assets'] if a['name'] == wanted]
+        if len(assets) != 1 or not re.fullmatch(r'sha256:[0-9a-f]{64}', assets[0].get('digest') or ''):
+            raise RuntimeError(f'no unique checksum-bearing release asset for {tool["name"]}')
+        tool.update(version=tag, url=assets[0]['browser_download_url'], sha256=assets[0]['digest'][7:])
+    result['python'] = {}
+    for name in ('semgrep', 'fonttools'):
+        specs = [s for s in (manifests / 'python' / (name + '.in')).read_text().splitlines() if s.strip() and not s.lstrip().startswith('#')]
+        if len(specs) != 1:
+            raise RuntimeError('expected one managed Python tool per environment')
+        spec = specs[0]
+        current = spec.split('==')[1]
+        data = json.loads(fetch(f'https://pypi.org/pypi/{name}/json'))
+        selected = compatible(current, [v for v, files in data['releases'].items() if files and not all(f.get('yanked') for f in files)])
+        result['python'][name] = spec.split('==')[0] + '==' + selected
+        if selected != data['info']['version']:
+            result['held'].append(name + ': newer incompatible release requires review')
+    result['webqa'] = json.loads((manifests / 'webqa/package.json').read_text())
+    for name, current in result['webqa']['dependencies'].items():
+        result['webqa']['dependencies'][name] = npm_candidate(name, current)
+    policy = json.loads((HELPERS / 'semgrep-compat-policy.json').read_text())
+    result['python_compat'] = policy if result['python']['semgrep'] == 'semgrep==' + policy['semgrep_version'] else None
+    return result
+
+
+def require_current_runtimes(p):
+    """Online publication may not update mutable Node/npm/AI/global runtimes."""
+    current = (NODE / 'node-current').resolve()
+    installed = run(str(current / 'bin/node'), '--version', capture=True).strip()
+    if version(installed) != version(p['node']):
+        raise RuntimeError('online mode requires a Node update; stop agents and use normal full-update')
+    for name, selected in {'npm': p['npm'], **p['ai']}.items():
+        actual = json.loads((current / 'lib/node_modules' / name / 'package.json').read_text())['version']
+        if actual != selected:
+            raise RuntimeError(f'online mode requires a {name} update; stop agents and use normal full-update')
+    for name, selected in p['global'].items():
+        actual = json.loads((NPM / 'lib/node_modules' / name / 'package.json').read_text())['version']
+        if actual != selected:
+            raise RuntimeError(f'online mode requires a global {name} update; use normal full-update')
+    print('CURRENT Node/npm/AI/global runtimes; online mode will not modify them.', flush=True)
+
+
+def require_current_browser_dependencies(candidate):
+    import shlex
+    preview = run('node', str(candidate / 'webqa/node_modules/playwright/cli.js'),
+                  'install-deps', '--dry-run', 'chromium', 'firefox', 'webkit', capture=True)
+    if preview.strip() == 'All system dependencies are installed.':
+        print('CURRENT native browser dependencies (Playwright native check; no APT changes).', flush=True)
+        return
+    tokens = shlex.split(preview)
+    try:
+        index = next(i for i, token in enumerate(tokens) if token == 'install' and i and tokens[i - 1] == 'apt-get')
+    except StopIteration:
+        raise RuntimeError('unrecognized Playwright dependency preview; no packages changed')
+    packages = [token for token in tokens[index + 1:] if not token.startswith('-')]
+    if not packages or any(not re.fullmatch(r'[a-z0-9][a-z0-9+.-]*', package) for package in packages):
+        raise RuntimeError('unrecognized Playwright package list; no packages changed')
+    simulated = run('apt-get', '--simulate', '--no-remove', 'install', *packages, capture=True)
+    if re.search(r'^(?:Inst|Remv|Conf) ', simulated, re.M):
+        raise RuntimeError('online mode requires native browser packages; stop agents and use normal full-update')
+    print('CURRENT native browser dependencies (APT simulation only).', flush=True)
+
+
+def node_update(p, work):
+    current = (NODE / 'node-current').resolve()
+    if current.parent != NODE or current.is_symlink():
+        raise RuntimeError('unexpected managed Node path')
+    current_version = run(str(current / 'bin/node'), '--version', capture=True).strip()
+    if version(p['node']) > version(current_version):
+        basename = f'node-{p["node"]}-linux-x64'
+        destination = NODE / basename
+        if destination.exists():
+            raise RuntimeError(f'Node candidate path already exists; inspect it: {destination}')
+        archive_name = basename + '.tar.xz'
+        base = 'https://nodejs.org/dist/' + p['node'] + '/'
+        sums = fetch(base + 'SHASUMS256.txt').decode()
+        expected = next(line.split()[0] for line in sums.splitlines() if line.split()[-1] == archive_name)
+        archive = work / archive_name
+        run('curl', '--fail', '--location', '--proto', '=https', '--proto-redir', '=https',
+            '--retry', '3', '--max-time', '300', '--output', str(archive), base + archive_name)
+        with archive.open('rb') as stream:
+            if hashlib.file_digest(stream, 'sha256').hexdigest() != expected:
+                raise RuntimeError('Node checksum mismatch')
+        with tarfile.open(archive, 'r:xz') as source:
+            source.extractall(work, filter='data')
+        extracted = work / basename
+        if extracted.is_symlink() or not (extracted / 'bin/node').is_file():
+            raise RuntimeError('unexpected Node archive')
+        shutil.move(extracted, destination)
+        (destination / 'etc').mkdir(exist_ok=True)
+        (destination / 'etc/npmrc').write_text(f'prefix={NPM}\nfund=false\naudit=false\nupdate-notifier=false\n')
+        stage_env = dict(os.environ, PATH=str(destination / 'bin') + ':' + os.environ['PATH'])
+        try:
+            run(str(destination / 'bin/npm'), 'install', '-g', '--prefix', str(destination), 'npm@' + p['npm'], env=stage_env)
+            for name, value in p['ai'].items():
+                run(str(destination / 'bin/npm'), 'install', '-g', '--prefix', str(destination),
+                    '--allow-scripts=@anthropic-ai/claude-code', name + '@' + value, env=stage_env)
+            for command in ('node', 'npm', 'codex', 'claude'):
+                run(str(destination / 'bin' / command), '--version', env=stage_env)
+            link = NODE / '.node-current.new'
+            if link.exists() or link.is_symlink():
+                raise RuntimeError('unexpected Node transition link')
+            link.symlink_to(destination)
+            os.replace(link, NODE / 'node-current')
+            previous = NODE / 'node-previous'
+            if previous.exists() and not previous.is_symlink():
+                raise RuntimeError('unexpected Node previous-release entry')
+            if previous.is_symlink():
+                previous.unlink()
+            previous.symlink_to(current)
+        except BaseException:
+            # Candidate never replaced the active release on failure above.
+            if (NODE / 'node-current').resolve() != destination:
+                shutil.rmtree(destination)
+            raise
+        current = destination
+    npm = str(current / 'bin/npm')
+    for name, value in {'npm': p['npm'], **p['ai']}.items():
+        installed = json.loads((current / 'lib/node_modules' / name / 'package.json').read_text())['version']
+        if installed == value:
+            print(f'CURRENT {name} {value}', flush=True)
+            continue
+        if version(value) < version(installed):
+            raise RuntimeError(f'refusing stale-plan downgrade for {name}')
+        run(npm, 'install', '-g', '--prefix', str(current), '--allow-scripts=@anthropic-ai/claude-code', name + '@' + value)
+        if json.loads((current / 'lib/node_modules' / name / 'package.json').read_text())['version'] != value:
+            raise RuntimeError(f'installed-version verification failed: {name}')
+        print(f'UPDATED {name} {value}', flush=True)
+    for name, value in p['global'].items():
+        installed = json.loads((NPM / 'lib/node_modules' / name / 'package.json').read_text())['version']
+        if version(value) < version(installed):
+            raise RuntimeError(f'refusing stale-plan downgrade for {name}')
+        if installed != value:
+            run(npm, 'install', '-g', '--prefix', str(NPM), name + '@' + value)
+        if json.loads((NPM / 'lib/node_modules' / name / 'package.json').read_text())['version'] != value:
+            raise RuntimeError(f'global package verification failed: {name}')
+        print(f'GLOBAL {name} {value}', flush=True)
+
+
+def developer_update(p, work):
+    print('Preparing shared developer candidate; the active release stays selected until verification passes.', flush=True)
+    packages = work / 'packages'
+    shutil.copytree(p['manifest_source'], packages)
+    (packages / 'binaries.json').write_text(json.dumps(p['binaries'], indent=2) + '\n')
+    compat = p.get('python_compat')
+    if compat and (compat != json.loads((HELPERS / 'semgrep-compat-policy.json').read_text())
+                   or p['python'].get('semgrep') != 'semgrep==' + compat['semgrep_version']):
+        raise RuntimeError('unreviewed Semgrep compatibility policy in plan')
+    policy_path = packages / 'python/semgrep-compat-policy.json'
+    overrides = packages / 'python/semgrep-overrides.txt'
+    for generated in (policy_path, overrides):
+        if generated.exists():
+            generated.unlink()
+    if compat:
+        policy_path.write_text(json.dumps(compat, indent=2) + '\n')
+        overrides.write_text(''.join(name + '==' + value['selected'] + '\n'
+                                    for name, value in compat['requirements'].items()))
+        print('LOCAL PACKAGING: exact Semgrep ' + compat['semgrep_version'] +
+              ' dependency compatibility policy; security audits remain enforced.', flush=True)
+    for name, spec in p['python'].items():
+        source = packages / 'python' / (name + '.in')
+        source.write_text(spec + '\n')
+        extra = ['--override', str(overrides)] if name == 'semgrep' and compat else []
+        run('/usr/local/bin/uv', 'pip', 'compile', '--python', '/usr/bin/python3', '--only-binary', ':all:',
+            '--generate-hashes', '--no-header', '--no-annotate', '--upgrade', *extra,
+            str(source), '--output-file', str(source.with_suffix('.txt')), capture=True)
+    web = packages / 'webqa'
+    (web / 'package.json').write_text(json.dumps(p['webqa'], indent=2) + '\n')
+    # install preserves satisfied transitive locks, including vulnerable versions.
+    # Refresh within declared ranges while retaining the reviewed direct pins.
+    run('npm', 'update', '--package-lock-only', '--engine-strict', '--ignore-scripts', '--no-fund', '--no-audit', cwd=web)
+    if json.loads((web / 'package.json').read_text()) != p['webqa']:
+        raise RuntimeError('dependency refresh changed the reviewed web QA manifest')
+    try:
+        run('npm', 'audit', '--audit-level=moderate', cwd=web)
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError('shared web QA security audit failed; the previous developer release remains selected') from error
+    for name in p['python']:
+        audit = work / ('audit-' + name)
+        audit.mkdir()
+        shutil.copyfile(packages / 'python' / (name + '.txt'), audit / 'requirements.txt')
+        try:
+            run('osv-scanner', 'scan', 'source', '--lockfile', str(audit / 'requirements.txt'))
+        except subprocess.CalledProcessError as error:
+            raise RuntimeError(f'{name} candidate failed its Python security check; the previous developer release remains selected; see the scanner report above') from error
+    output = run(str(HELPERS / 'devtools-install'), '--prepare', str(packages), capture=True)
+    print(output)
+    lines = [s for s in output.splitlines() if s.startswith('DEV_TOOLS_PREPARED ')]
+    if len(lines) != 1:
+        raise RuntimeError('developer candidate was not prepared')
+    candidate = Path(lines[0].split(' ', 1)[1])
+    # Native browser dependencies are supplied by the matching verified npm release.
+    apt_config = work / 'apt.conf'
+    apt_config.write_text('APT::Get::Remove "false";\n')
+    if p.get('online'):
+        require_current_browser_dependencies(candidate)
+    else:
+        run('node', str(candidate / 'webqa/node_modules/playwright/cli.js'), 'install-deps', 'chromium', 'firefox', 'webkit',
+            env=dict(os.environ, APT_CONFIG=str(apt_config)))
+    site = Path('/etc/freq-ai-setup/site.conf').read_text()
+    import shlex
+    master = shlex.split(next(s.split('=', 1)[1] for s in site.splitlines() if s.startswith('export FREQ_MASTER_USER=')))[0]
+    env = dict(os.environ, FREQ_DEVTOOLS_TEST_RELEASE=str(candidate), PATH=str(candidate / 'bin') + ':' + os.environ['PATH'])
+    try:
+        run('runuser', '-u', master, '--', str(HELPERS / 'devtools-accept'), env=env)
+    except BaseException:
+        print('Developer verification failed: previous shared release remains selected.', file=sys.stderr)
+        raise
+    extra = ['--retain-releases'] if p.get('online') else []
+    run(str(HELPERS / 'devtools-install'), '--publish', str(candidate), *extra)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--check', action='store_true')
+    mode.add_argument('--apply', action='store_true')
+    parser.add_argument('--plan', type=Path)
+    parser.add_argument('--online', action='store_true')
+    args = parser.parse_args()
+    if os.geteuid():
+        raise RuntimeError('internal updater requires root')
+    os.umask(0o022)
+    if args.check:
+        p = plan()
+        p['online'] = args.online
+        if args.online:
+            require_current_runtimes(p)
+        print(f'Node {p["node"]} | npm {p["npm"]}')
+        for name, value in {**p['ai'], **p['global']}.items():
+            print(f'  {name}: {value}')
+        for spec in p['python'].values():
+            print('  ' + spec)
+        for name, value in p['webqa']['dependencies'].items():
+            print(f'  {name}: {value}')
+        for tool in p['binaries']['tools']:
+            print(f'DEVELOPER {tool["name"]}: {tool["version"]}')
+        for item in p['held']:
+            print('HELD ' + item)
+        if args.plan:
+            with args.plan.open('x') as stream:
+                json.dump(p, stream)
+            args.plan.chmod(0o600)
+        return
+    if not args.plan or args.plan.is_symlink() or args.plan.stat().st_uid or args.plan.stat().st_mode & 0o077:
+        raise RuntimeError('a root-private reviewed plan is required')
+    p = json.loads(args.plan.read_text())
+    if bool(p.get('online')) != args.online:
+        raise RuntimeError('plan mode differs from requested update mode')
+    with tempfile.TemporaryDirectory(prefix='freq-full-update-', dir='/var/tmp') as directory:
+        work = Path(directory)
+        os.environ.update(npm_config_cache=str(work / 'npm-cache'), UV_CACHE_DIR=str(work / 'uv-cache'),
+                          UV_PYTHON_DOWNLOADS='never', DISABLE_AUTOUPDATER='1', npm_config_engine_strict='true')
+        if args.online:
+            require_current_runtimes(p)
+        else:
+            node_update(p, work)
+        developer_update(p, work)
+    for item in p['held']:
+        print('HELD ' + item)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        print(f'update-managed-tools: {error}', file=sys.stderr)
+        sys.exit(1)

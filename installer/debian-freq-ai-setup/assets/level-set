@@ -1,0 +1,37 @@
+#!/bin/bash
+# Agent-only wipe. Never removes installed software, projects, or board history.
+set -euo pipefail
+case "${1:-}" in --help|-h) echo 'Usage: level-set [--dry-run]'; echo 'Agent-only wipe. Projects/board/tools stay; staging is archived.'; exit 0 ;; esac
+source /usr/local/libexec/freq-ai-setup/delete-agent
+require_root "$@"
+[[ $# -eq 0 || ( $# -eq 1 && $1 == --dry-run ) ]] || { echo 'Usage: level-set [--dry-run]' >&2; exit 2; }
+exec 9</run/lock/freq-ai-maintenance.lock
+flock -xn 9 || fail 'another agent maintenance operation is running'
+mapfile -t agents < <(find "$config_root/agents.d" -maxdepth 1 -type f -name '*.conf' -printf '%f\n' | sed 's/\.conf$//' | LC_ALL=C sort)
+mapfile -t members < <(getent group freq-agents | cut -d: -f4 | tr ',' '\n' | sed '/^$/d; /^freq-discord$/d' | LC_ALL=C sort -u)
+[[ ${agents[*]} == "${members[*]}" ]] || fail 'agent registry and shared group differ; inspect before wiping'
+if ((${#agents[@]} == 0)); then
+    echo 'No agents to remove. Projects, board data, and installed tools are unchanged.'
+    exit 0
+fi
+printf 'Agents to remove: %s\n' "${agents[*]}"
+echo 'Staging moves to staging/archive/<timestamp>/<agent>/. Projects and board history stay.'
+echo 'Agent homes, accounts, sessions, scripts, and coms are permanently deleted. No backup.'
+for agent in "${agents[@]}"; do
+    validate_agent "$agent"
+    /usr/local/libexec/freq-ai-setup/retire-agent-data --check "$agent"
+done
+[[ ${1:-} != --dry-run ]] || exit 0
+read -r -p 'Type LEVEL-SET to remove these agents: ' confirmation
+[[ $confirmation == LEVEL-SET ]] || { echo 'Cancelled.'; exit 0; }
+interactive_mode=1
+for agent in "${agents[@]}"; do
+    systemctl disable --now "freq-board-alert@$agent.timer" >/dev/null 2>&1 || true
+    systemctl stop "freq-board-alert@$agent.service" >/dev/null 2>&1 || true
+    stop_agent "$agent"
+done
+for agent in "${agents[@]}"; do
+    delete_one "$agent"
+    printf 'Removed %s.\n' "$agent"
+done
+echo 'LEVEL_SET_COMPLETE projects=preserved board=preserved staging=archived tools=preserved'

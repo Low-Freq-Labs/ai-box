@@ -17,7 +17,7 @@ This initial public source snapshot contains the maintained infrastructure compo
 
 ## Current status
 
-This is an initial publication of existing infrastructure source, rather than a complete portable installer or a self-contained distribution of the entire running machine. Some interfaces described in the documentation depend on host-side services and configuration that are outside this snapshot. Installation paths and service integration still reflect the current deployment. The source has not been qualified as a fresh-machine installation from this repository.
+The `installer/` directory contains the existing self-contained Debian13 amd64 installer source, updated to include the maintained administration, board, communications, prerequisite-check and scheduling tooling. See [the installation guide](installer/PORTABLE-INSTALL.md) and the release qualification report. Installer components are checked in isolated filesystem/process/network namespaces; a full fresh-machine installation and reboot have not yet been qualified. Runtime credentials and site-specific grants must be configured by the operator.
 
 Runtime configuration, provider credentials, private keys, agent home directories, live board contents, messages, and session records are excluded. No project application source is included here.
 

@@ -1,0 +1,42 @@
+#!/usr/bin/python3
+"""Keep the operator menu small; retain repair/setup machinery internally."""
+import hashlib
+import os
+from pathlib import Path
+import pwd
+import shlex
+import shutil
+
+if os.geteuid():
+    raise SystemExit('refresh-tool-menu requires root')
+site = Path('/etc/freq-ai-setup/site.conf')
+if site.is_symlink() or site.stat().st_uid or site.stat().st_mode & 0o022:
+    raise SystemExit('unsafe site config')
+values = {k.removeprefix('export '): shlex.split(v)[0] for line in site.read_text().splitlines() if '=' in line for k,v in [line.split('=',1)]}
+menu = Path(values['FREQ_MASTER_HOME']) / 'tools'
+if menu.resolve() != menu or not menu.is_dir():
+    raise SystemExit('unsafe tools directory')
+internal = Path('/usr/local/libexec/freq-ai-setup')
+known = {}
+manifest = Path('/etc/freq-ai-setup/source-manifest.sha256')
+if manifest.is_file():
+    for line in manifest.read_text().splitlines():
+        digest, path = line.split(maxsplit=1)
+        known[Path(path).name] = digest
+configured = Path('/etc/freq-ai-setup/discord/config.json').is_file() and Path('/etc/freq-ai-setup/discord/bot-token').is_file()
+for name in ('ai-packages-install', 'setup-coms', 'setup-board', 'setup-discord'):
+    path = menu / name
+    if path.exists() or path.is_symlink():
+        if path.is_symlink() or not path.is_file():
+            raise SystemExit(f'refusing unexpected menu entry: {path}')
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        current = hashlib.sha256((internal / name).read_bytes()).hexdigest()
+        if actual not in (current, known.get(name)):
+            raise SystemExit(f'preserved locally modified tool; review manually: {path}')
+        if name != 'setup-discord' or configured:
+            path.unlink()
+    if name == 'setup-discord' and not configured:
+        shutil.copyfile(internal / name, path)
+        account = pwd.getpwnam(values['FREQ_MASTER_USER'])
+        os.chown(path, account.pw_uid, account.pw_gid)
+        path.chmod(0o755)

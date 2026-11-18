@@ -1,0 +1,96 @@
+#!/usr/bin/python3
+"""Shared GitHub adapter; credentials are never written into repository config."""
+import json
+import grp
+import os
+from pathlib import Path
+import stat
+import sys
+
+CONFIG = Path("/etc/freq-shared-git/config.json")
+
+
+def project_environment(environment):
+    """Protected command-scope config, inherited by gh's Git subprocesses."""
+    env = environment.copy()
+    count = int(env.get('GIT_CONFIG_COUNT', '0'))
+    if not 0 <= count <= 1000:
+        raise ValueError('invalid Git configuration count')
+    for key, value in [('safe.directory', '/home/freq-agents/projects/*'),
+                       ('core.sharedRepository', 'group')]:
+        env[f'GIT_CONFIG_KEY_{count}'] = key
+        env[f'GIT_CONFIG_VALUE_{count}'] = value
+        count += 1
+    env['GIT_CONFIG_COUNT'] = str(count)
+    return env
+
+
+def load(path=CONFIG):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd) as stream:
+        info = os.fstat(stream.fileno())
+        if info.st_uid != 0 or info.st_mode & 0o027 or not stat.S_ISREG(info.st_mode):
+            raise ValueError("unsafe shared Git configuration")
+        return json.load(stream)
+
+
+def credential(config, action, text):
+    fields = dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
+    if action != "get" or fields.get("protocol") != "https" or fields.get("host") != "github.com":
+        return ""
+    return f"username={config['login']}\npassword={config['token']}\n\n"
+
+
+def invocation(tool, args, config, environment):
+    env = environment.copy()
+    for role in ("AUTHOR", "COMMITTER"):
+        env[f"GIT_{role}_NAME"] = config["name"]
+        env[f"GIT_{role}_EMAIL"] = config["email"]
+    for key in list(env):
+        if key.startswith("GIT_TRACE") or key in ("GH_DEBUG", "GIT_CURL_VERBOSE"):
+            env.pop(key)
+    if tool == "gh":
+        env.pop("GITHUB_TOKEN", None)
+        env["GH_TOKEN"] = config["token"]
+        env["GH_HOST"] = "github.com"
+        return ["/usr/bin/gh", *args], env
+    # Authentication is an exact HTTPS-host match; SSH requires its own key.
+    return ["/usr/bin/git", "-c", f"user.name={config['name']}",
+            "-c", f"user.email={config['email']}",
+            "-c", "credential.https://github.com.helper=",
+            "-c", "credential.https://github.com.helper=!/usr/local/libexec/freq-ai-setup/shared-git credential",
+            *args], env
+
+
+def main():
+    tool = Path(sys.argv[0]).name
+    is_helper = tool == "shared-git" and sys.argv[1:2] == ["credential"]
+    if tool not in ("git", "gh") and not is_helper:
+        raise ValueError("invalid shared Git invocation")
+    environment = os.environ.copy()
+    if os.getuid() != 0 and grp.getgrnam('freq-agents').gr_gid in os.getgroups():
+        environment = project_environment(environment)
+    try:
+        config = load()
+    except (FileNotFoundError, PermissionError):
+        if is_helper:
+            return
+        os.execve(f"/usr/bin/{tool}", [tool, *sys.argv[1:]], environment)
+    if is_helper:
+        sys.stdout.write(credential(config, sys.argv[2] if len(sys.argv) > 2 else "",
+                                    sys.stdin.read(16384)))
+        return
+    # Keep root's maintenance identity and credentials separate.
+    if os.getuid() == 0:
+        os.execv(f"/usr/bin/{tool}", [tool, *sys.argv[1:]])
+    argv, env = invocation(tool, sys.argv[1:], config, environment)
+    os.execve(argv[0], argv, env)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, KeyError):
+        print("Shared Git configuration failed; ask the operator to run update-shared-git.",
+              file=sys.stderr)
+        sys.exit(1)

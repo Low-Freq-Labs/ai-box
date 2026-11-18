@@ -1,0 +1,245 @@
+#!/usr/bin/python3
+"""Rootless execution inside the systemd mount/PID boundary, never on the host."""
+import concurrent.futures
+import fcntl
+import json
+import os
+from pathlib import Path
+import pwd
+import selectors
+import select
+import signal
+import socket
+import struct
+import subprocess
+import sys
+import termios
+import threading
+import time
+
+TOOLS = {'podman', 'buildah', 'bwrap'}
+MAX_FRAME = 65536
+MAX_OUTPUT = 64 * 1024 * 1024
+MAX_INPUT = 64 * 1024 * 1024
+DEADLINE = 3600
+
+def read_exact(sock, size):
+    data = bytearray()
+    while len(data) < size:
+        part = sock.recv(size - len(data))
+        if not part:
+            raise EOFError()
+        data.extend(part)
+    return bytes(data)
+
+def receive(sock):
+    kind, size = struct.unpack('!cI', read_exact(sock, 5))
+    if size > MAX_FRAME:
+        raise ValueError('oversized frame')
+    return kind, read_exact(sock, size)
+
+def send(sock, kind, data):
+    view = memoryview(struct.pack('!cI', kind, len(data)) + data)
+    deadline = time.monotonic() + 10
+    while view:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not select.select([], [sock], [], remaining)[1]:
+            raise TimeoutError('client output stalled')
+        try:
+            size = sock.send(view, socket.MSG_DONTWAIT)
+        except BlockingIOError:
+            continue
+        if not size:
+            raise EOFError()
+        view = view[size:]
+
+def validate(request, account):
+    if set(request) != {'v', 'tool', 'argv', 'cwd', 'tty', 'rows', 'cols', 'term'} or request['v'] != 1:
+        raise ValueError('unsupported request')
+    if request['tool'] not in TOOLS:
+        raise ValueError('unsupported tool')
+    args = request['argv']
+    if not isinstance(args, list) or len(args) > 512 or any(not isinstance(a, str) or '\0' in a for a in args):
+        raise ValueError('invalid arguments')
+    if type(request['tty']) is not bool:
+        raise ValueError('invalid terminal flag')
+    for key in ('rows', 'cols'):
+        if type(request[key]) is not int or not 1 <= request[key] <= 1000:
+            raise ValueError('invalid terminal size')
+    if not isinstance(request['term'], str) or len(request['term']) > 80 or not all(c.isalnum() or c in '-_' for c in request['term']):
+        raise ValueError('invalid terminal type')
+    cwd = Path(request['cwd']).resolve(strict=True)
+    allowed = [Path(account.pw_dir), Path('/home/freq-agents/projects'),
+               Path('/home/freq-agents/staging') / account.pw_name]
+    if not cwd.is_dir() or not any(cwd == root or root in cwd.parents for root in allowed):
+        raise ValueError('container cwd must be your home, shared projects, or your staging lane')
+    return cwd
+
+def execute(sock, account):
+    process = None
+    master_fd = None
+    reader = None
+    stopping = threading.Event()
+    try:
+        # The socket may be shared accidentally; peer credentials remain mandatory.
+        _, uid, _ = struct.unpack('3i', sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+        if uid != account.pw_uid:
+            raise ValueError('recipient socket belongs to a different agent')
+        sock.settimeout(10)
+        kind, raw = receive(sock)
+        if kind != b'J':
+            raise ValueError('job header required')
+        request = json.loads(raw)
+        cwd = validate(request, account)
+        sock.settimeout(None)
+        # Do not inherit arbitrary client variables, loader overrides, or host tokens.
+        env = dict(PATH='/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
+                   HOME=account.pw_dir, USER=account.pw_name, LOGNAME=account.pw_name,
+                   LANG='C.UTF-8', TERM=request['term'], FREQ_CONTAINER_WORKER='1',
+                   XDG_RUNTIME_DIR='/run/freq-container-state/' + account.pw_name,
+                   CONTAINERS_CONF='/usr/local/share/freq-ai-setup/container-tools.conf')
+        argv = ['/usr/bin/' + request['tool'], *request['argv']]
+        if request['tty']:
+            master_fd, slave = os.openpty()
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', request['rows'], request['cols'], 0, 0))
+            # A fresh helper acquires the controlling tty before exec; no preexec_fn in threads.
+            process = subprocess.Popen([sys.executable, __file__, '--exec', *argv], cwd=cwd, env=env,
+                                       stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+            os.close(slave)
+            outputs = [(master_fd, b'O')]
+            input_fd = master_fd
+        else:
+            process = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.PIPE,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+            outputs = [(process.stdout.fileno(), b'O'), (process.stderr.fileno(), b'R')]
+            input_fd = process.stdin.fileno()
+        os.set_blocking(input_fd, False)
+        disconnected = threading.Event()
+        def write_input(body):
+            view = memoryview(body)
+            while view and not stopping.is_set():
+                if not select.select([], [input_fd], [], 0.25)[1]:
+                    continue
+                try:
+                    view = view[os.write(input_fd, view):]
+                except BlockingIOError:
+                    continue
+        def input_loop():
+            total = 0
+            try:
+                while not stopping.is_set():
+                    frame, body = receive(sock)
+                    if frame == b'I':
+                        total += len(body)
+                        if total > MAX_INPUT:
+                            raise ValueError('stdin limit exceeded')
+                        write_input(body)
+                    elif frame == b'W' and master_fd is not None and len(body) == 8:
+                        rows, cols, _, _ = struct.unpack('HHHH', body)
+                        if not 1 <= rows <= 1000 or not 1 <= cols <= 1000:
+                            raise ValueError('invalid resize')
+                        fcntl.ioctl(master_fd, termios.TIOCSWINSZ, body)
+                    elif frame == b'E':
+                        if master_fd is None:
+                            process.stdin.close()
+                        else:
+                            write_input(b'\x04')
+                        # Keep detecting disconnects even after stdin EOF.
+                    else:
+                        raise ValueError('invalid input frame')
+            except (EOFError, OSError, ValueError):
+                disconnected.set()
+        reader = threading.Thread(target=input_loop, daemon=True)
+        reader.start()
+        total = 0
+        deadline = time.monotonic() + DEADLINE
+        with selectors.DefaultSelector() as poll:
+            for fd, channel in outputs:
+                os.set_blocking(fd, False)
+                poll.register(fd, selectors.EVENT_READ, channel)
+            while poll.get_map():
+                if disconnected.is_set() or time.monotonic() > deadline:
+                    raise RuntimeError('client disconnected or one-hour job deadline reached')
+                for event, _ in poll.select(0.25):
+                    try:
+                        data = os.read(event.fd, MAX_FRAME)
+                    except OSError:
+                        data = b''
+                    if not data:
+                        poll.unregister(event.fd)
+                        continue
+                    total += len(data)
+                    if total > MAX_OUTPUT:
+                        raise RuntimeError('64 MiB output limit reached')
+                    send(sock, event.data, data)
+        while process.poll() is None:
+            if disconnected.wait(0.25) or time.monotonic() > deadline:
+                raise RuntimeError('client disconnected or one-hour job deadline reached')
+        code = process.returncode
+        send(sock, b'X', str(code if code >= 0 else 128 - code).encode())
+    except Exception as error:
+        try:
+            send(sock, b'R', ('FREQ container job failed: ' + str(error) + '\n').encode()[:MAX_FRAME])
+            send(sock, b'X', b'125')
+        except (OSError, EOFError):
+            pass
+    finally:
+        stopping.set()
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        if reader:
+            reader.join()
+        if process:
+            # Kill the foreground job group, not previously detached agent containers.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream:
+                    stream.close()
+        if master_fd is not None:
+            os.close(master_fd)
+        sock.close()
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == '--exec':
+        if sys.argv[2] not in ['/usr/bin/' + tool for tool in TOOLS]:
+            raise SystemExit(126)
+        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+        os.execv(sys.argv[2], sys.argv[2:])
+    if os.geteuid() == 0 or Path('/proc/1/comm').read_text().strip() != 'catatonit':
+        raise SystemExit('container worker requires rootless private PID namespace')
+    account = pwd.getpwuid(os.getuid())
+    # Service activation itself must not race a full-update or agent wipe.
+    # Socket activation creates an agent-owned process, visible to maintenance checks.
+    with open('/run/lock/freq-ai-maintenance.lock', 'rb') as maintenance:
+        fcntl.flock(maintenance, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    listener = socket.socket(fileno=3)
+    if not listener.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN):
+        raise SystemExit('socket activation required')
+    capacity = threading.BoundedSemaphore(4)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        while True:
+            client, _ = listener.accept()
+            if not capacity.acquire(blocking=False):
+                try:
+                    send(client, b'R', b'FREQ container worker busy (four jobs); retry later.\n')
+                    send(client, b'X', b'125')
+                except (OSError, EOFError):
+                    pass
+                finally:
+                    client.close()
+                continue
+            def job(connection=client):
+                try:
+                    execute(connection, account)
+                finally:
+                    capacity.release()
+            pool.submit(job)
+
+if __name__ == '__main__':
+    main()

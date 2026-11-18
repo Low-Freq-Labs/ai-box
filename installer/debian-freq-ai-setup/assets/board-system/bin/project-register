@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly DEFAULT_BOARD_ROOT=/var/lib/freq-agents/board
+BOARD_ROOT=$DEFAULT_BOARD_ROOT
+if [ "${FREQ_BOARD_TESTING:-0}" = 1 ]; then
+    BOARD_ROOT=${FREQ_BOARD_ROOT:-$BOARD_ROOT}
+fi
+
+usage() {
+    printf 'Usage: project-register <project-name> <brief-overview>\n' >&2
+    exit 1
+}
+
+fail() {
+    printf 'project-register: REGISTER FAILED: %s\n' "$1" >&2
+    exit 1
+}
+
+[ "$#" -eq 2 ] || usage
+
+project_name=$1
+brief_overview=$2
+
+[ -n "$project_name" ] || fail 'project name is empty'
+[ "${#project_name}" -le 160 ] || fail 'project name exceeds 160 characters'
+[[ "$project_name" != *$'\n'* && "$project_name" != *$'\r'* ]] \
+    || fail 'project name must be one line'
+[ -n "$brief_overview" ] || fail 'brief overview is empty'
+[ "${#brief_overview}" -le 500 ] || fail 'brief overview exceeds 500 characters'
+[[ "$brief_overview" != *$'\n'* && "$brief_overview" != *$'\r'* ]] \
+    || fail 'brief overview must be one line'
+
+project_id=$(printf '%s' "$project_name" \
+    | LC_ALL=C /usr/bin/tr '[:lower:]' '[:upper:]' \
+    | LC_ALL=C /usr/bin/sed -E 's/[^A-Z0-9]+/-/g; s/^-+//; s/-+$//' \
+    | /usr/bin/cut -c 1-64)
+project_id=${project_id%-}
+[ -n "$project_id" ] || fail 'project name cannot produce a project ID'
+
+projects_root="$BOARD_ROOT/projects"
+if [ ! -d "$projects_root" ] || [ -L "$projects_root" ]; then
+    fail "projects root is unavailable: $projects_root"
+fi
+[ -w "$projects_root" ] || fail "projects root is not writable: $projects_root"
+
+exec {lock_fd}<"$projects_root" || fail 'cannot open projects root lock'
+/usr/bin/flock -x "$lock_fd" || fail 'cannot lock projects root'
+
+project_dir="$projects_root/$project_id"
+if [ -e "$project_dir" ] || [ -L "$project_dir" ]; then
+    fail "project already exists: $project_id"
+fi
+
+stage=$(/usr/bin/mktemp -d "$projects_root/.${project_id}.register.XXXXXX") \
+    || fail 'cannot create project staging directory'
+cleanup() {
+    if [ -n "${stage:-}" ] && [ -d "$stage" ]; then
+        /usr/bin/rm -rf -- "$stage"
+    fi
+}
+trap cleanup EXIT
+
+/usr/bin/chmod 2770 "$stage"
+/usr/bin/mkdir -p \
+    "$stage/ready" \
+    "$stage/active" \
+    "$stage/blocked" \
+    "$stage/done" \
+    "$stage/archive"
+/usr/bin/chmod 2770 \
+    "$stage/ready" \
+    "$stage/active" \
+    "$stage/blocked" \
+    "$stage/done" \
+    "$stage/archive"
+
+umask 0007
+printf '%s\n' "$brief_overview" >"$stage/overview.md" \
+    || fail 'cannot write project overview'
+/usr/bin/chmod 0660 "$stage/overview.md"
+
+/usr/bin/mv -T -- "$stage" "$project_dir" \
+    || fail "cannot publish project: $project_id"
+stage=
+trap - EXIT
+
+printf 'REGISTERED PROJECT: %s\n' "$project_id"

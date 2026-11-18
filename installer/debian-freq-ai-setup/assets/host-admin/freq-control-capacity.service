@@ -1,0 +1,16 @@
+[Unit]
+Description=Maintain bounded emergency board and communications capacity
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /usr/local/libexec/freq-ai-setup/host-admin/control_capacity.py maintain
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/freq-control-capacity
+MemoryMax=64M
+TasksMax=8
+TimeoutStartSec=30

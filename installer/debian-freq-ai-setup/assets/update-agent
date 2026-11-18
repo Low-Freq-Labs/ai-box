@@ -1,0 +1,265 @@
+#!/usr/bin/python3 -I
+"""Operator-only inspection and non-disruptive agent color updates."""
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import shlex
+import stat
+import subprocess
+import sys
+import time
+import tomllib
+from types import SimpleNamespace
+
+BASE = Path('/etc/freq-ai-setup')
+HOME_ROOT = Path('/home')
+BACKUPS = Path('/var/backups/freq-agent-updates')
+MAINTENANCE = Path('/run/lock/freq-ai-maintenance.lock')
+BIN_ROOT = Path('/usr/local/bin')
+PALETTE = {'red':('#EF4444',203), 'orange':('#FB923C',208),
+           'yellow':('#FBBF24',220), 'green':('#22C55E',41),
+           'blue':('#38BDF8',45), 'purple':('#A855F7',141),
+           'pink':('#EC4899',205), 'toxic-green':('#39FF14',82)}
+SKILLS = ('dev-msg','dev-msg-status','dev-inbox','dev-read','dev-drain','agent-team','project-archive',
+          'project-assign','project-list','project-register','project-status','task-block',
+          'task-done','task-ready','task-register','task-status','task-transfer','task-dependencies','project-assess','task-update','agent-skills','wrap-up','watch-once')
+SKILL_ROOT = Path('/opt/freq-agents/skills')
+
+
+def runtime_files(home, operator_home, master_name, agent, old, new, uid, gid):
+    """Carry current instructions; preserve runtime configs, authentication and history."""
+    contracts={'codex':('.codex','AGENTS.md'),'claude':('.claude','CLAUDE.md')}
+    old_dir,old_name=contracts[old]
+    new_dir,new_name=contracts[new]
+    target=home/new_dir
+    # create-agent provisions both configs; do not manufacture or replace user settings.
+    runtime_config,_=read_owned(target/('config.toml' if new=='codex' else 'settings.json'),uid)
+    (tomllib.loads if new=='codex' else json.loads)(runtime_config.decode())
+    instructions,_=read_owned(home/old_dir/old_name,uid)
+    files=[]
+    def add(path,data,owner,group,mode):
+        if path.exists() or path.is_symlink():
+            before,info=read_owned(path,owner)
+        else:
+            before=None
+            info=SimpleNamespace(st_uid=owner,st_gid=group,st_mode=stat.S_IFREG|mode)
+        files.append((path,before,data,info))
+    add(target/new_name,instructions,uid,gid,0o644)
+    master=pwd.getpwnam(master_name)
+    add(operator_home/'agents'/agent/new_name,instructions,master.pw_uid,master.pw_gid,0o644)
+    for action in ('start','connect','stop'):
+        path=operator_home/'agents'/agent/f'{agent}-{action}'
+        data,info=read_owned(path,master.pw_uid)
+        text=replace_one(data.decode(),r"^readonly runtime='(?:codex|claude)'$",f"readonly runtime='{new}'")
+        files.append((path,data,text.encode(),info))
+    for skill in SKILLS:
+        path=target/'skills'/skill/'SKILL.md'
+        if path.is_symlink(): raise ValueError('linked destination skill; preserved for review')
+        if path.exists(): continue
+        data,_=read_owned(SKILL_ROOT/skill/'SKILL.md',0)
+        add(path,data,uid,gid,0o644)
+    companion = target/'skills/watch-once/scripts/watch_once.py'
+    if not companion.exists():
+        data,_ = read_owned(SKILL_ROOT/'watch-once/scripts/watch_once.py',0)
+        add(companion,data,uid,gid,0o644)
+    return files
+
+
+def config(path):
+    info=path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_mode & 0o022:
+        raise ValueError('unsafe root configuration: ' + str(path))
+    result={}
+    for line in path.read_text().splitlines():
+        if not line.strip() or line.lstrip().startswith('#'): continue
+        key,value=line.removeprefix('export ').split('=',1)
+        parsed=shlex.split(value)
+        if len(parsed)!=1: raise ValueError('invalid configuration value')
+        result[key]=parsed[0]
+    return result
+
+
+def colour(value):
+    if value in PALETTE:
+        hex_value,ansi=PALETTE[value]
+    else:
+        if not re.fullmatch(r'#[0-9a-fA-F]{6}',value):
+            raise ValueError('choose ' + ', '.join(PALETTE) + ', or a quoted #RRGGBB')
+        hex_value=value.upper()
+        rgb=tuple(int(hex_value[i:i+2],16) for i in (1,3,5))
+        levels=(0,95,135,175,215,255)
+        def distance(index):
+            c=tuple(levels[v] for v in ((index-16)//36,((index-16)//6)%6,(index-16)%6)) if index<232 else (8+10*(index-232),)*3
+            return sum((a-b)**2 for a,b in zip(rgb,c))
+        ansi=min(range(16,256),key=distance)
+    return hex_value, ';'.join(str(int(hex_value[i:i+2],16)) for i in (1,3,5)), str(ansi)
+
+
+def replace_one(text, pattern, replacement):
+    updated,count=re.subn(pattern,lambda _:replacement,text,flags=re.M)
+    if count!=1: raise ValueError('expected exactly one managed color setting; file preserved')
+    return updated
+
+
+def read_owned(path, uid):
+    if path.parent.resolve()!=path.parent: raise ValueError('unsafe parent directory')
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    with os.fdopen(fd,'rb') as stream:
+        info=os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid!=uid or info.st_nlink!=1 or info.st_size>1024*1024:
+            raise ValueError('unsafe or oversized identity file: '+str(path))
+        return stream.read(),info
+
+
+def replace_file(path,data,info):
+    # Fixed account home under root-owned /home; no caller-supplied file paths.
+    temp=path.with_name('.'+path.name+'.update-agent-'+str(os.getpid()))
+    fd=os.open(temp,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+    try:
+        with os.fdopen(fd,'wb') as stream:
+            stream.write(data);stream.flush();os.fsync(stream.fileno())
+            os.fchown(stream.fileno(),info.st_uid,info.st_gid)
+            os.fchmod(stream.fileno(),stat.S_IMODE(info.st_mode))
+        os.replace(temp,path)
+    finally:
+        if temp.exists(): temp.unlink()
+
+
+def tmux(agent, socket, *args):
+    return subprocess.run(['/usr/sbin/runuser','-u',agent,'--','/usr/bin/tmux','-S',socket,*args],
+                          capture_output=True,text=True,timeout=5,
+                          env={'PATH':'/usr/bin:/bin','LANG':'C.UTF-8'})
+
+
+def main():
+    parser=argparse.ArgumentParser(description='Interactively update a stopped agent; preserve its files and runtime credentials.')
+    parser.add_argument('agent',nargs='?')
+    parser.add_argument('--show',action='store_true',help='show current settings without making changes')
+    parser.add_argument('--color',help=', '.join(PALETTE)+', or #RRGGBB')
+    parser.add_argument('--runtime',choices=('codex','claude'),help='switch runtime; agent must be fully stopped')
+    parser.add_argument('--dry-run',action='store_true',help='preview color change without writing')
+    parser.add_argument('--yes',action='store_true',help='apply explicitly supplied changes without the final prompt')
+    args=parser.parse_args()
+    site=config(BASE/'site.conf')
+    master=site['FREQ_MASTER_USER']
+    if os.geteuid()!=0:
+        if pwd.getpwuid(os.getuid()).pw_name!=master:
+            raise ValueError('only the configured operator can update agents')
+        os.execvp('sudo',['sudo','--',str(Path(__file__).resolve()),*sys.argv[1:]])
+    if args.show and (args.color or args.runtime): raise ValueError('--show cannot be combined with changes')
+    if not args.agent:
+        if not sys.stdin.isatty(): raise ValueError('specify an agent, or run in an interactive terminal')
+        print('Agents: '+', '.join(sorted(p.stem for p in (BASE/'agents.d').glob('*.conf'))))
+        args.agent=input('Agent to update: ').strip()
+    if not re.fullmatch(r'[a-z][a-z0-9-]{0,31}',args.agent): raise ValueError('invalid agent name')
+    registry=BASE/'agents.d'/f'{args.agent}.conf'
+    settings=config(registry)
+    if settings.get('AGENT')!=args.agent: raise ValueError('registry mismatch')
+    account=pwd.getpwnam(args.agent)
+    if account.pw_dir!=str(HOME_ROOT/args.agent): raise ValueError('unexpected agent home')
+    identity=BASE/'identities'/f'{args.agent}.conf'
+    config(identity)
+    socket=str(Path(config(BASE/'coms.conf')['FREQ_COMS_TMUX_DIR'])/('agent-'+args.agent))
+    running=tmux(args.agent,socket,'has-session','-t',args.agent).returncode==0
+    details=dict(agent=args.agent,runtime=settings['RUNTIME'],color=settings['COLOR'],running=running)
+    if args.show:
+        print(json.dumps(details,indent=2));return
+    if not args.color and not args.runtime:
+        if not sys.stdin.isatty(): raise ValueError('interactive terminal required; use --show or explicit --color/--runtime options')
+        if running or subprocess.run(['/usr/bin/pgrep','-u',str(account.pw_uid)],capture_output=True).returncode!=1:
+            raise ValueError(f'{args.agent} must be fully stopped first; run {args.agent}-stop and close its other sessions')
+        print(json.dumps(details,indent=2))
+        print('Colors: '+', '.join(PALETTE)+', or #RRGGBB')
+        args.color=input(f"Color [{settings['COLOR']}] (Enter to keep): ").strip() or None
+        selected=input(f"Runtime [{settings['RUNTIME']}] (codex/claude; Enter to keep): ").strip()
+        if selected and selected not in ('codex','claude'): raise ValueError('runtime must be codex or claude')
+        args.runtime=selected or None
+        if not args.color and not args.runtime: print('No changes requested.');return
+    selected_color=args.color or settings['COLOR']
+    hex_value,rgb,ansi=colour(selected_color)
+    new_runtime=args.runtime or settings['RUNTIME']
+    switching=new_runtime!=settings['RUNTIME']
+    with MAINTENANCE.open('r') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        processes=subprocess.run(['/usr/bin/pgrep','-u',str(account.pw_uid)],capture_output=True)
+        if processes.returncode not in (0,1): raise ValueError('cannot check agent process state')
+        if (running or processes.returncode==0) and not args.dry_run:
+            raise ValueError(f'{args.agent} must be fully stopped before updating; run {args.agent}-stop and close its other sessions')
+        if switching:
+            if not (BIN_ROOT/new_runtime).is_file(): raise ValueError('target runtime is not installed')
+            print(f"Runtime: {settings['RUNTIME']} -> {new_runtime}. Requires stopped agent; current instructions will carry over. Authentication/history stay in their own runtime directories.")
+        paths=[(registry,0),(identity,0),(Path(account.pw_dir)/'.tmux.conf',account.pw_uid)]
+        files=[]
+        for path,uid in paths:
+            data,info=read_owned(path,uid)
+            text=data.decode('utf-8')
+            if path==registry:
+                text=replace_one(text,r"^COLOR=.*$",f"COLOR='{selected_color if selected_color in PALETTE else hex_value}'")
+                text=replace_one(text,r'^RUNTIME=.*$',f"RUNTIME='{new_runtime}'")
+            elif path==identity:
+                text=replace_one(text,r'^export FREQ_USER_TRUECOLOR=.*$',f"export FREQ_USER_TRUECOLOR='{rgb}'")
+                text=replace_one(text,r'^export FREQ_USER_256=.*$',f"export FREQ_USER_256='{ansi}'")
+                text=replace_one(text,r'^export FREQ_AGENT_RUNTIME=.*$',f"export FREQ_AGENT_RUNTIME='{new_runtime}'")
+            else:
+                text=replace_one(text,r'^set-option -g @fq_colour .+$',f'set-option -g @fq_colour "{hex_value}"')
+            files.append((path,data,text.encode(),info))
+        if switching:
+            files += runtime_files(Path(account.pw_dir),Path(pwd.getpwnam(master).pw_dir),master,args.agent,
+                                   settings['RUNTIME'],new_runtime,account.pw_uid,account.pw_gid)
+        print(f"{args.agent}: {settings['COLOR']} -> {hex_value} (256-color {ansi})")
+        print('Files to update: '+', '.join(str(path) for path,before,after,_ in files if before!=after))
+        if args.dry_run: print('Preview only; no changes.');return
+        if not args.yes:
+            if not sys.stdin.isatty(): raise ValueError('review with --dry-run, then use --yes to apply explicit changes')
+            if input('Apply these changes? [y/N]: ').strip().lower() not in ('y','yes'):
+                print('No changes applied.');return
+        if subprocess.run(['/usr/bin/pgrep','-u',str(account.pw_uid)],capture_output=True).returncode!=1:
+            raise ValueError('agent started while reviewing; no changes applied')
+        if all(before==after for _,before,after,_ in files):
+            print('Color already configured; no files changed.')
+        else:
+            backup=BACKUPS/(str(time.time_ns())+'-'+args.agent)
+            backup.mkdir(parents=True,mode=0o700)
+            backup.parent.chmod(0o700)
+            records=[]
+            for index,(path,before,after,info) in enumerate(files):
+                saved=backup/str(index)
+                if before is not None: saved.write_bytes(before);saved.chmod(0o600)
+                records.append(dict(path=str(path),backup=str(saved) if before is not None else None,sha256=hashlib.sha256(before).hexdigest() if before is not None else None,
+                                    after_sha256=hashlib.sha256(after).hexdigest(),uid=info.st_uid,gid=info.st_gid,mode=oct(stat.S_IMODE(info.st_mode))))
+            (backup/'manifest.json').write_text(json.dumps(records,indent=2))
+            for path,before,_,info in files:
+                if before is None:
+                    if path.exists() or path.is_symlink(): raise ValueError('concurrent file creation; retry')
+                elif read_owned(path,info.st_uid)[0]!=before: raise ValueError('concurrent edit detected; retry')
+            applied=[]
+            try:
+                for path,before,after,info in files:
+                    if before==after: continue
+                    missing=[]
+                    parent=path.parent
+                    while not parent.exists(): missing.append(parent);parent=parent.parent
+                    if parent.resolve()!=parent: raise ValueError('unsafe destination directory')
+                    for directory in reversed(missing):
+                        directory.mkdir(mode=0o700);os.chown(directory,info.st_uid,info.st_gid)
+                    replace_file(path,after,info);applied.append((path,before,after,info))
+            except (OSError,ValueError):
+                for path,before,after,info in reversed(applied):
+                    if read_owned(path,info.st_uid)[0]==after:
+                        if before is None: path.unlink()
+                        else: replace_file(path,before,info)
+                raise
+            print('Backup: '+str(backup))
+        print('New shell sessions use the updated prompt color.')
+        if switching: print(f'Runtime changed. Run {args.agent}-start, then {args.agent}-connect; sign in if required. Previous conversations are retained, not converted.')
+
+
+if __name__=='__main__':
+    try: main()
+    except (OSError,ValueError,KeyError,subprocess.TimeoutExpired) as error:
+        print('update-agent: '+str(error),file=sys.stderr);sys.exit(2)

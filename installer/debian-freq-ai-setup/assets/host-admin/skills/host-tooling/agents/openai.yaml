@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reviewed tooling maintenance"
+  short_description: "Verify and maintain operator-reviewed tool releases"
+  default_prompt: "Use $host-tooling to inspect the relevant state and perform the supported operation within my current grant."

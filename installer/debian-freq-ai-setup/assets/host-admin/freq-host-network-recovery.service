@@ -1,0 +1,12 @@
+[Unit]
+Description=Restore unconfirmed interfaces edits before networking starts
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target networking.service freq-host-routes.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /usr/local/libexec/freq-ai-setup/host-admin/broker.py --recover-config
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,372 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly site_config=/etc/freq-ai-setup/site.conf
+[[ -f $site_config && ! -L $site_config \
+   && $(stat -Lc '%U:%G:%a' "$site_config" 2>/dev/null) == root:root:644 ]] || {
+    printf 'ai-packages-install: safe FREQ-AI-SETUP site config is unavailable\n' >&2
+    exit 2
+}
+source "$site_config"
+readonly master_user=${FREQ_MASTER_USER:?missing FREQ_MASTER_USER}
+readonly tool_root=/opt/freq-agents/toolchain
+readonly npm_global_root=/opt/freq-agents/npm-global
+node_version=24.19.0
+# Repair must not undo a supported maintenance update.
+if [[ -L $tool_root/node-current ]]; then
+    retained_node=$(readlink -f "$tool_root/node-current")
+    if [[ $retained_node =~ ^/opt/freq-agents/toolchain/node-v(24\.[0-9]+\.[0-9]+)-linux-x64$ ]] \
+       && dpkg --compare-versions "${BASH_REMATCH[1]}" ge "$node_version"; then
+        node_version=${BASH_REMATCH[1]}
+    fi
+fi
+readonly node_version
+readonly node_generation="$tool_root/node-v${node_version}-linux-x64"
+readonly node_archive="node-v${node_version}-linux-x64.tar.xz"
+readonly node_sha256=14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647
+npm_version=11.17.0
+if [[ -x $node_generation/bin/npm ]]; then
+    retained_npm=$("$node_generation/bin/npm" --version)
+    if [[ $retained_npm =~ ^11\.[0-9]+\.[0-9]+$ ]] && dpkg --compare-versions "$retained_npm" ge "$npm_version"; then
+        npm_version=$retained_npm
+    fi
+fi
+readonly npm_version
+
+if [[ $EUID -ne 0 ]]; then
+    [[ $(id -un) == "$master_user" ]] || {
+        printf 'ai-packages-install: only %s or root may install the shared baseline\n' "$master_user" >&2
+        exit 2
+    }
+    exec sudo --non-interactive -- "$0" "$@"
+fi
+
+[[ $# -eq 0 ]] || { printf 'usage: ai-packages-install\n' >&2; exit 2; }
+[[ $(dpkg --print-architecture) == amd64 ]] || {
+    printf 'ai-packages-install: this baseline currently supports Debian amd64 only\n' >&2
+    exit 2
+}
+getent passwd "$master_user" >/dev/null || {
+    printf 'ai-packages-install: missing master user: %s\n' "$master_user" >&2
+    exit 2
+}
+[[ -x /usr/local/libexec/freq-ai-setup/agent-trust-current ]] || {
+    printf 'ai-packages-install: FREQ-AI-SETUP folder-trust helper is missing; run install-base first\n' >&2
+    exit 2
+}
+
+export DEBIAN_FRONTEND=noninteractive
+if [[ ${FREQ_DEV_APT_READY:-0} != 1 ]]; then
+    /bin/bash /usr/local/share/freq-ai-setup/devtools/install-dev-apt \
+        /usr/local/share/freq-ai-setup/devtools/packages
+fi
+
+install -d -o root -g root -m 0755 "$tool_root"
+if [[ -e $node_generation && ! -x $node_generation/bin/node ]]; then
+    printf 'ai-packages-install: refusing partial Node generation: %s\n' "$node_generation" >&2
+    exit 3
+fi
+if [[ ! -x $node_generation/bin/node ]]; then
+    temporary="$(mktemp -d /var/tmp/freq-ai-setup-ai-packages.XXXXXX)"
+    cleanup_download() { find "$temporary" -xdev -depth -delete 2>/dev/null || true; }
+    trap cleanup_download EXIT HUP INT TERM
+    curl --fail --location --retry 4 --retry-delay 2 \
+        --output "$temporary/$node_archive" \
+        "https://nodejs.org/dist/v${node_version}/$node_archive"
+    printf '%s  %s\n' "$node_sha256" "$temporary/$node_archive" | sha256sum --check --status
+    tar -C "$tool_root" -xJf "$temporary/$node_archive"
+    chown -R root:root "$node_generation"
+    find "$node_generation" -type d -exec chmod 0755 {} +
+    cleanup_download
+    trap - EXIT HUP INT TERM
+fi
+[[ $($node_generation/bin/node --version) == "v$node_version" ]] || {
+    printf 'ai-packages-install: Node generation failed version verification\n' >&2
+    exit 4
+}
+
+ln -sfn "$node_generation" "$tool_root/node-current"
+for command in node npm npx corepack; do
+    [[ -e $node_generation/bin/$command ]] || continue
+    ln -sfn "$tool_root/node-current/bin/$command" "/usr/local/bin/$command"
+done
+
+install -d -o root -g root -m 0755 \
+    "$node_generation/etc" \
+    "$npm_global_root" \
+    "$npm_global_root/bin" \
+    "$npm_global_root/lib" \
+    "$npm_global_root/lib/node_modules" \
+    "$npm_global_root/share"
+printf '%s\n' \
+    "prefix=$npm_global_root" \
+    'fund=false' \
+    'audit=false' \
+    'update-notifier=false' >"$node_generation/etc/npmrc"
+
+runtime_tmp="$(mktemp -d /var/tmp/freq-ai-setup-ai-npm.XXXXXX)"
+cleanup_runtime() { find "$runtime_tmp" -xdev -depth -delete 2>/dev/null || true; }
+trap cleanup_runtime EXIT HUP INT TERM
+export npm_config_cache="$runtime_tmp/npm-cache"
+export NODE_COMPILE_CACHE="$runtime_tmp/node-compile-cache"
+
+if [[ $($node_generation/bin/npm --version) != "$npm_version" ]]; then
+    "$node_generation/bin/npm" install --global --prefix "$node_generation" \
+        --no-fund --no-audit "npm@$npm_version"
+fi
+codex_manifest="$node_generation/lib/node_modules/@openai/codex/package.json"
+claude_manifest="$node_generation/lib/node_modules/@anthropic-ai/claude-code/package.json"
+if [[ ! -f $codex_manifest ]]; then
+    "$node_generation/bin/npm" install --global --prefix "$node_generation" \
+        --no-fund --no-audit @openai/codex@latest
+fi
+if [[ ! -f $claude_manifest \
+      || $(basename -- "$(readlink -f "$node_generation/bin/claude" 2>/dev/null || true)") != claude.exe ]]; then
+    "$node_generation/bin/npm" install --global --prefix "$node_generation" \
+        --no-fund --no-audit \
+        --allow-scripts=@anthropic-ai/claude-code \
+        @anthropic-ai/claude-code@latest
+fi
+chown -R root:root "$node_generation" "$npm_global_root"
+
+install -d -o root -g root -m 0755 /usr/local/libexec/freq-ai-setup
+
+updater_tmp="$(mktemp /usr/local/libexec/freq-ai-setup/.shared-tool-updater.XXXXXX)"
+cat >"$updater_tmp" <<'UPDATER'
+#!/bin/bash
+set -euo pipefail
+
+readonly node_root="$(readlink -f /opt/freq-agents/toolchain/node-current)"
+readonly npm_bin="$node_root/bin/npm"
+readonly codex_package="$node_root/lib/node_modules/@openai/codex/package.json"
+readonly claude_package="$node_root/lib/node_modules/@anthropic-ai/claude-code/package.json"
+
+green=''
+reset=''
+if [[ -t 1 && ${TERM:-dumb} != dumb && -z ${NO_COLOR:-} ]]; then
+    green=$'\033[32m'
+    reset=$'\033[0m'
+fi
+
+[[ $(id -u) -eq 0 ]] || { printf 'internal shared-tool updater usage error\n' >&2; exit 2; }
+mode=${1:---check}
+scope=${2:-all}
+[[ $# -le 2 ]] || { printf 'internal shared-tool updater usage error\n' >&2; exit 2; }
+case "$mode" in --check|--apply) ;; *) exit 2 ;; esac
+case "$scope" in codex|claude|all) ;; *) exit 2 ;; esac
+[[ -x $npm_bin ]] || { printf 'shared npm is unavailable\n' >&2; exit 3; }
+
+runtime_tmp="$(mktemp -d /tmp/shared-tool-updater.XXXXXX)"
+cleanup() { find "$runtime_tmp" -xdev -depth -delete 2>/dev/null || true; }
+trap cleanup EXIT HUP INT TERM
+export npm_config_cache="$runtime_tmp/npm-cache"
+export NODE_COMPILE_CACHE="$runtime_tmp/node-compile-cache"
+
+installed_version() {
+    case "$1" in
+        codex) jq -er '.version' "$codex_package" ;;
+        claude) jq -er '.version' "$claude_package" ;;
+    esac
+}
+
+latest_version() {
+    local version
+    version="$($npm_bin view "$1" version --silent)"
+    case "$version" in
+        ''|*[!0-9A-Za-z.+-]*) printf 'registry returned an invalid version for %s\n' "$1" >&2; exit 3 ;;
+    esac
+    printf '%s\n' "$version"
+}
+
+update_one() {
+    local tool=$1 package installed latest
+    case "$tool" in
+        codex) package=@openai/codex ;;
+        claude) package=@anthropic-ai/claude-code ;;
+    esac
+    installed="$(installed_version "$tool")"
+    printf 'Current version: %s\n' "$installed"
+    printf 'Checking for updates to latest version...\n'
+    latest="$(latest_version "$package")"
+    if [[ $mode == --apply && $installed != "$latest" ]]; then
+        if [[ $tool == codex ]]; then
+            printf 'Codex is updating...\n'
+        else
+            printf 'Claude Code is updating...\n'
+        fi
+        if [[ $tool == claude ]]; then
+            "$npm_bin" install --global --prefix "$node_root" --no-fund --no-audit \
+                --allow-scripts=@anthropic-ai/claude-code "$package@$latest"
+        else
+            "$npm_bin" install --global --prefix "$node_root" --no-fund --no-audit "$package@$latest"
+        fi
+        chown -R root:root "$node_root"
+        installed="$(installed_version "$tool")"
+        [[ $installed == "$latest" ]] || { printf '%s update verification failed\n' "$tool" >&2; exit 4; }
+    fi
+    if [[ $installed == "$latest" ]]; then
+        if [[ $tool == codex ]]; then
+            printf '%sCodex is up to date (%s)%s\n' "$green" "$installed" "$reset"
+        else
+            printf '%sClaude Code is up to date (%s)%s\n' "$green" "$installed" "$reset"
+        fi
+    elif [[ $tool == codex ]]; then
+        printf 'Codex update available: %s (current: %s)\n' "$latest" "$installed"
+    else
+        printf 'Claude Code update available: %s (current: %s)\n' "$latest" "$installed"
+    fi
+}
+
+case "$scope" in
+    codex) update_one codex ;;
+    claude) update_one claude ;;
+    all) update_one codex; update_one claude ;;
+esac
+UPDATER
+chmod 0755 "$updater_tmp"
+chown root:root "$updater_tmp"
+mv -Tf -- "$updater_tmp" /usr/local/libexec/freq-ai-setup/shared-tool-updater
+
+codex_tmp="$(mktemp /usr/local/bin/.codex.shared.XXXXXX)"
+cat >"$codex_tmp" <<'CODEX_WRAPPER'
+#!/bin/sh
+set -eu
+
+readonly_codex=/opt/freq-agents/toolchain/node-current/bin/codex
+readonly_updater=/usr/local/libexec/freq-ai-setup/shared-tool-updater
+readonly_trust_helper=/usr/local/libexec/freq-ai-setup/agent-trust-current
+readonly_yolo=--dangerously-bypass-approvals-and-sandbox
+readonly_site=/etc/freq-ai-setup/site.conf
+[ -f "$readonly_site" ] && [ ! -L "$readonly_site" ] \
+    && [ "$(stat -Lc '%U:%G:%a' "$readonly_site" 2>/dev/null)" = root:root:644 ] \
+    || { printf 'codex: safe FREQ-AI-SETUP site config is unavailable\n' >&2; exit 2; }
+. "$readonly_site"
+: "${FREQ_MASTER_USER:?missing FREQ_MASTER_USER}"
+
+if [ "${1:-}" = update ]; then
+    shift
+    [ "$#" -eq 0 ] || { printf 'usage: codex update\n' >&2; exit 2; }
+    case "$(id -un)" in
+        root) exec "$readonly_updater" --apply codex ;;
+        "$FREQ_MASTER_USER") exec sudo --non-interactive "$readonly_updater" --apply codex ;;
+        *) printf 'Codex is shared; ask %s to run codex update.\n' "$FREQ_MASTER_USER" >&2; exit 2 ;;
+    esac
+fi
+
+case "${1:-}" in
+    --version|-V|-v|--help|-h|help)
+        runtime_parent="$(getent passwd "$(id -u)" | cut -d: -f6)"
+        [ -n "$runtime_parent" ] || { printf 'codex: cannot resolve account home\n' >&2; exit 2; }
+        runtime_tmp="$(mktemp -d "$runtime_parent/.codex-info.XXXXXX")"
+        cleanup() { find "$runtime_tmp" -xdev -depth -delete 2>/dev/null || true; }
+        trap cleanup EXIT HUP INT TERM
+        CODEX_HOME="$runtime_tmp" "$readonly_codex" "$@"
+        exit $?
+        ;;
+esac
+
+working_directory=.
+expect_directory=false
+for argument do
+    if [ "$expect_directory" = true ]; then
+        working_directory=$argument
+        expect_directory=false
+        continue
+    fi
+    case "$argument" in
+        -C|--cd) expect_directory=true ;;
+        --cd=*) working_directory=${argument#--cd=} ;;
+    esac
+done
+[ "$expect_directory" = false ] || { printf 'codex: --cd requires a directory\n' >&2; exit 2; }
+"$readonly_trust_helper" codex "$working_directory"
+for argument do
+    [ "$argument" != "$readonly_yolo" ] || exec "$readonly_codex" "$@"
+done
+exec "$readonly_codex" "$readonly_yolo" "$@"
+CODEX_WRAPPER
+chmod 0755 "$codex_tmp"
+chown root:root "$codex_tmp"
+mv -Tf -- "$codex_tmp" /usr/local/bin/codex
+
+claude_tmp="$(mktemp /usr/local/bin/.claude.shared.XXXXXX)"
+cat >"$claude_tmp" <<'CLAUDE_WRAPPER'
+#!/bin/sh
+set -eu
+
+readonly_claude=/opt/freq-agents/toolchain/node-current/bin/claude
+readonly_updater=/usr/local/libexec/freq-ai-setup/shared-tool-updater
+readonly_trust_helper=/usr/local/libexec/freq-ai-setup/agent-trust-current
+readonly_bypass=--dangerously-skip-permissions
+readonly_site=/etc/freq-ai-setup/site.conf
+[ -f "$readonly_site" ] && [ ! -L "$readonly_site" ] \
+    && [ "$(stat -Lc '%U:%G:%a' "$readonly_site" 2>/dev/null)" = root:root:644 ] \
+    || { printf 'claude: safe FREQ-AI-SETUP site config is unavailable\n' >&2; exit 2; }
+. "$readonly_site"
+: "${FREQ_MASTER_USER:?missing FREQ_MASTER_USER}"
+
+if [ "${1:-}" = update ]; then
+    shift
+    [ "$#" -eq 0 ] || { printf 'usage: claude update\n' >&2; exit 2; }
+    case "$(id -un)" in
+        root) exec "$readonly_updater" --apply claude ;;
+        "$FREQ_MASTER_USER") exec sudo --non-interactive "$readonly_updater" --apply claude ;;
+        *) printf 'Claude is shared; ask %s to run claude update.\n' "$FREQ_MASTER_USER" >&2; exit 2 ;;
+    esac
+fi
+
+case "${1:-}" in
+    --version|-V|-v|--help|-h|help) exec env DISABLE_AUTOUPDATER=1 "$readonly_claude" "$@" ;;
+esac
+"$readonly_trust_helper" claude .
+for argument do
+    [ "$argument" != "$readonly_bypass" ] || exec env DISABLE_AUTOUPDATER=1 "$readonly_claude" "$@"
+done
+exec env DISABLE_AUTOUPDATER=1 "$readonly_claude" "$readonly_bypass" "$@"
+CLAUDE_WRAPPER
+chmod 0755 "$claude_tmp"
+chown root:root "$claude_tmp"
+mv -Tf -- "$claude_tmp" /usr/local/bin/claude
+
+profile_tmp="$(mktemp /etc/profile.d/.30-freq-ai-setup-shared-tools.XXXXXX)"
+cat >"$profile_tmp" <<'PROFILE'
+# Root-owned shared FREQ-AI-SETUP development tools.
+case "$-" in
+    *i*) ;;
+    *) return 0 2>/dev/null || exit 0 ;;
+esac
+for shared_bin in /opt/freq-agents/npm-global/bin /opt/freq-agents/toolchain/node-current/bin; do
+    case ":$PATH:" in
+        *":$shared_bin:"*) ;;
+        *) PATH="$PATH:$shared_bin" ;;
+    esac
+done
+export PATH
+PROFILE
+chmod 0644 "$profile_tmp"
+chown root:root "$profile_tmp"
+mv -Tf -- "$profile_tmp" /etc/profile.d/30-freq-ai-setup-shared-tools.sh
+
+rm -f -- /usr/local/sbin/agent-tools-update \
+    /usr/local/bin/codex-update-all \
+    /usr/local/bin/claude-update-all \
+    /usr/local/bin/agent-tools-update-all
+
+cleanup_runtime
+trap - EXIT HUP INT TERM
+
+/usr/local/libexec/freq-ai-setup/shared-tool-updater --apply all
+
+[[ $(node --version) == "v$node_version" ]] || exit 4
+[[ $(npm --version) == "$npm_version" ]] || exit 4
+[[ $(npm config get prefix) == "$npm_global_root" ]] || exit 4
+[[ $(stat -c '%U:%G:%a' "$node_generation") == root:root:755 ]] || exit 4
+[[ $(stat -c '%U:%G:%a' "$npm_global_root") == root:root:755 ]] || exit 4
+command -v bwrap >/dev/null || exit 4
+[[ $(basename -- "$(readlink -f "$node_generation/bin/claude")") == claude.exe ]] || exit 4
+
+/usr/local/share/freq-ai-setup/devtools/devtools-install
+
+printf 'AI_PACKAGES_READY node=%s npm=%s codex=%s claude=%s shared_prefix=%s\n' \
+    "$(node --version)" "$(npm --version)" \
+    "$(codex --version)" "$(claude --version)" "$npm_global_root"

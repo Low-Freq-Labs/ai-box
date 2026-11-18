@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+import sys
+import re
+from pathlib import Path
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from freq_board import BoardError, blocked_reason, locate, locked, validate_project, read_text
+from freq_board_inspect import inspect as inspect_board
+from freq_board_transaction import revision, identity
+import json
+
+
+def latest_note(content):
+    matches = list(re.finditer(
+        r'^## (Assignment note|Transfer handoff|Status note)\n\n- Recorded at: `[^`\n]+`\n- Recorded by: `[^`\n]+`',
+        content, re.M))
+    if not matches:
+        return None
+    match = matches[-1]
+    tail = content[match.start():]
+    boundary = re.search(r'\n(?:## |<!-- FREQ_)', tail)
+    section = tail[:boundary.start()] if boundary else tail
+    lines = section.strip().splitlines()
+    preview = '\n'.join(lines[:12])[:1200]
+    truncated = len(lines) > 12 or len('\n'.join(lines[:12])) > 1200
+    # Treat later Markdown sections conservatively: FILE retains the full note.
+    suffix = '\n  [Preview only; full note/history: FILE]' if truncated or boundary else ''
+    return 'LATEST NOTE:\n' + '\n'.join('  ' + line for line in preview.splitlines()) + suffix
+
+
+def usage():
+    print("Usage: task-status <project-id> <task-name>", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def run(arguments):
+    structured = '--json' in arguments or '--include-errors' in arguments
+    arguments = [a for a in arguments if a not in ('--json', '--include-errors')]
+    if len(arguments) != 2:
+        usage()
+    project_id, task_name = arguments
+    project = validate_project(project_id)
+    with locked(project, recover=False, exclusive=False):
+        report = inspect_board(project)
+        matches = [r for r in report['tasks'] if r['title'] == task_name]
+        if structured:
+            print(json.dumps({'schema': 1, 'project': project_id, 'tasks': matches,
+                'errors': [e for e in report['errors'] if e['path'] not in {r['path'] for r in report['tasks']} or any(e['path'] == r['path'] for r in matches)],
+                'pending_operations': report['pending_operations'], 'found': bool(matches)}, ensure_ascii=False, indent=2))
+            return
+        if any(r['errors'] for r in matches):
+            for row in matches:
+                print('TASK: ' + task_name + '\nSTATUS: ' + row['status'] + '\nFILE: ' + str(project / row['path']))
+                for error in row['errors']:
+                    print('CORRUPT: ' + error)
+            raise BoardError('; '.join(e for r in matches for e in r['errors']))
+        location = locate(project, task_name)
+        fields = [f"TASK: {task_name}", f"STATUS: {location['status']}"]
+        if location["owner"]:
+            fields.append(f"OWNER: {location['owner']}")
+        if location["status"] == "blocked":
+            fields.append("REASON: " + blocked_reason(location["path"]))
+        fields.append(f"FILE: {location['path']}")
+        fields.append('REVISION: ' + revision(project, location['path']))
+        fields.append('TASK-ID: ' + identity(project, task_name))
+        note = latest_note(read_text(location['path']))
+        if note:
+            fields.append(note)
+        print("\n".join(fields))
+
+
+if __name__ == "__main__":
+    try:
+        run(sys.argv[1:])
+    except BoardError as error:
+        print(f"task-status: STATUS FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)
+    except (OSError, UnicodeError) as error:
+        print(f"task-status: STATUS FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)

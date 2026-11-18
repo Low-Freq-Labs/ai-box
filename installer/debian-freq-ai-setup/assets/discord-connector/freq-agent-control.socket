@@ -1,0 +1,12 @@
+[Unit]
+Description=FREQ restricted agent lifecycle endpoint
+
+[Socket]
+ListenStream=/run/freq-agent-control.sock
+SocketUser=root
+SocketGroup=freq-discord
+SocketMode=0660
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

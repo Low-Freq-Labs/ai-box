@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""Bounded local functional checks, run as the actual user (including Landlock)."""
+import json
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import tempfile
+import sys
+import http.server
+import threading
+
+ROOT = Path(os.environ.get('FREQ_DEVTOOLS_TEST_RELEASE', '/opt/freq-agents/devtools/current'))
+
+
+def run(argv, cwd, env, expected=0, timeout=120, input=None):
+    process = subprocess.Popen(argv, cwd=cwd, env=env, text=True, stdin=subprocess.PIPE,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    try:
+        out, err = process.communicate(input=input, timeout=timeout)
+        if process.returncode != expected:
+            raise RuntimeError(f'{argv[0]} exited {process.returncode}: {err[-1500:]}')
+        return out
+    finally:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+
+
+def main():
+    if os.geteuid() == 0:
+        raise RuntimeError('run developer acceptance as the master or an agent, not root')
+    with tempfile.TemporaryDirectory(prefix='freq-dev-accept-') as directory:
+        work = Path(directory)
+        env = dict(os.environ, XDG_CACHE_HOME=str(work / 'cache'), XDG_CONFIG_HOME=str(work / 'config'),
+                   SEMGREP_SEND_METRICS='off', SEMGREP_ENABLE_VERSION_CHECK='0',
+                   PLAYWRIGHT_BROWSERS_PATH=str(ROOT / 'webqa/browsers'),
+                   UV_CACHE_DIR=str(work / 'uv-cache'))
+        for tool in ['git', 'git-lfs', 'gh', 'fd', 'bat', 'rg', 'fzf', 'jq', 'shellcheck',
+                     'shfmt', 'bats', 'cmake', 'ninja', 'gdb', 'strace', 'tcpdump',
+                     'mtr', 'smbclient', 'psql', 'mysql', 'redis-cli', 'podman', 'buildah',
+                     'ffmpeg', 'pandoc', 'pdftotext', 'tesseract', 'uv', 'uvx', 'yq',
+                     'delta', 'hurl', 'lychee', 'gitleaks', 'osv-scanner', 'duckdb',
+                     'py-spy', 'semgrep', 'pyftsubset', 'playwright', 'lighthouse', 'php', 'java']:
+            if not shutil.which(tool):
+                raise RuntimeError(f'missing global command: {tool}')
+        print('PASS global command resolution')
+        compatibility = ROOT / 'manifests/python/semgrep-compat-policy.json'
+        run([str(ROOT / 'python/semgrep/bin/python'),
+             '/usr/local/share/freq-ai-setup/devtools/check-python-dependencies', str(compatibility)], work, env)
+        if compatibility.exists():
+            print(run([str(ROOT / 'python/semgrep/bin/python'),
+                       '/usr/local/share/freq-ai-setup/devtools/check-semgrep-compatibility'], work, env, timeout=120).strip())
+            print('PASS exact locally qualified Semgrep dependency policy; all other dependency constraints satisfied')
+        run(['php', '-r', 'if (!extension_loaded("curl")) exit(1); echo "PHP_OK";'], work, env)
+        run(['java', '-jar', str(ROOT / 'webqa/node_modules/vnu-jar/build/dist/vnu.jar'), '--version'], work, env)
+        imports = 'const r=require("node:module").createRequire(' + json.dumps(str(ROOT / 'webqa/package.json')) + ');'
+        run(['node', '-e', imports + 'for(const m of ["ajv/dist/2020","yaml","jsonpath-plus"]) r(m);'], work, env)
+        print('PASS migrated-tool PHP, HTML validator, and matrix dependencies')
+        # These must work from the Landlock agent context, not just the operator.
+        status = run(['dpkg-query', '-W', '-f=${Status}', 'build-essential'], work, env)
+        assert status == 'install ok installed', status
+        with tempfile.NamedTemporaryFile(prefix='freq-agent-check-', dir='/dev/shm') as memory:
+            memory.write(b'FREQ'); memory.flush()
+            memory.seek(0)
+            assert memory.read() == b'FREQ'
+        if os.access('/var/lib/dpkg/status', os.W_OK):
+            raise RuntimeError('package records must remain read-only')
+        print('PASS read-only package records and shared-memory creation')
+        # Project dependencies never land in the system Python.
+        run(['python3', '-m', 'venv', str(work / '.venv')], work, env)
+        run([str(work / '.venv/bin/python'), '-c', 'import tomllib,sys; assert sys.prefix != sys.base_prefix'], work, env)
+        run(['uv', 'venv', '--python', '/usr/bin/python3', str(work / 'uv-venv')], work, env)
+        print('PASS isolated Python project environments')
+        (work / 'sample.c').write_text('#include <stdio.h>\nint main(void){puts("FREQ");return 0;}\n')
+        run(['cc', 'sample.c', '-o', 'sample'], work, env)
+        assert run([str(work / 'sample')], work, env).strip() == 'FREQ'
+        run(['gdb', '--batch', '-ex', 'file sample', '-ex', 'info files'], work, env)
+        print('PASS native build and debugger')
+        (work / 'data.yaml').write_text('answer: 42\n')
+        assert run(['yq', '.answer', 'data.yaml'], work, env).strip() == '42'
+        assert run(['sqlite3', ':memory:', 'select 6*7;'], work, env).strip() == '42'
+        assert '42' in run(['duckdb', '-csv', '-c', 'select 6*7 as answer;'], work, env)
+        print('PASS YAML and database clients')
+        (work / 'rule.yml').write_text('rules:\n- id: fixture\n  languages: [python]\n  message: fixture\n  severity: WARNING\n  pattern: eval(...)\n')
+        (work / 'fixture.py').write_text('eval("1+1")\n')
+        result = run(['semgrep', '--config', str(work / 'rule.yml'), '--json', '--metrics=off',
+                      '--disable-version-check', '--no-git-ignore', str(work / 'fixture.py')], work, env)
+        assert json.loads(result)['results'], 'Semgrep missed the local fixture'
+        print('PASS Semgrep local rule execution')
+        run(['py-spy', 'record', '--duration', '1', '--output', str(work / 'profile.svg'),
+             '--', 'python3', '-c', 'import time; end=time.time()+2\nwhile time.time()<end: pass'], work, env, timeout=15)
+        assert (work / 'profile.svg').stat().st_size > 0
+        print('PASS py-spy child-process profiling')
+        font = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+        run(['pyftsubset', font, '--text=FREQ', '--flavor=woff2', '--output-file=' + str(work / 'font.woff2')], work, env)
+        assert (work / 'font.woff2').stat().st_size > 0
+        run(['magick', '-size', '16x16', 'xc:purple', str(work / 'image.png')], work, env)
+        run(['cwebp', '-quiet', str(work / 'image.png'), '-o', str(work / 'image.webp')], work, env)
+        print('PASS image and webfont preparation')
+        script = work / 'browser.cjs'
+        script.write_text('const path = ' + json.dumps(str(ROOT / 'webqa/node_modules') + '/') + ';\n' + '''
+const {chromium,firefox,webkit}=require(path+'playwright');
+const AxeBuilder=require(path+'@axe-core/playwright').default;
+(async()=>{
+ for(const [name,engine] of Object.entries({chromium,firefox,webkit})){
+  const browser=await engine.launch({headless:true,...(name==='chromium'?{chromiumSandbox:true}:{})});
+  try {
+   const context=await browser.newContext();
+   const page=await context.newPage();
+   await page.route('https://freq-fixture.invalid/**', r=>r.fulfill({contentType:'text/html',body:'<!doctype html><html lang="en"><head><title>FREQ</title></head><body><main><h1>FREQ</h1></main></body></html>'}));
+   await page.goto('https://freq-fixture.invalid/');
+   if(await page.title()!=='FREQ')throw Error('render failed');
+   await page.screenshot({path:name+'.png'});
+   const result=await new AxeBuilder({page}).analyze();
+   if(result.violations.length)throw Error('axe fixture failed');
+   console.log('PASS '+name+' render/screenshot/accessibility');
+  } finally {await browser.close();}
+ }
+})().catch(e=>{console.error(e.message);process.exit(1)});
+''')
+        print(run(['node', str(script)], work, env, timeout=180).strip())
+        # Local HTTP fixture: no external target, public listener, or persistent server.
+        class Fixture(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/html')
+                self.end_headers()
+                self.wfile.write(b'<!doctype html><html lang="en"><head><title>FREQ</title></head><body><main><h1>FREQ</h1></main></body></html>')
+            def log_message(self, *args):
+                pass
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Fixture)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = 'http://127.0.0.1:' + str(server.server_port) + '/'
+            (work / 'fixture.hurl').write_text('GET ' + url + '\nHTTP 200\n')
+            run(['hurl', '--test', 'fixture.hurl'], work, env)
+            run(['lychee', '--no-progress', url], work, env)
+            run(['lighthouse', url, '--quiet', '--only-categories=accessibility',
+                 '--chrome-flags=--headless', '--output=json',
+                 '--output-path=' + str(work / 'lighthouse.json')], work, env)
+            report = json.loads((work / 'lighthouse.json').read_text())
+            assert not report.get('runtimeError'), report.get('runtimeError')
+            assert report['categories']['accessibility']['score'] == 1
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+        print('PASS Hurl, Lychee, and Lighthouse local HTTP checks')
+        (work / 'clean').mkdir()
+        (work / 'clean/readme.txt').write_text('No credentials in this fixture.\n')
+        run(['gitleaks', 'dir', str(work / 'clean'), '--no-banner', '--no-color'], work, env)
+        print('PASS Gitleaks clean fixture')
+        # Boundaries must hold even when commands work.
+        if os.access(ROOT / 'bin', os.W_OK):
+            raise RuntimeError('user can modify shared developer binaries')
+        print('PASS shared tool release is not user-writable')
+    print('DEV_TOOLS_ACCEPTANCE_PASS temporary_data=removed')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (RuntimeError, OSError, AssertionError, subprocess.SubprocessError) as error:
+        print(f'DEV_TOOLS_ACCEPTANCE_FAIL {error}', file=sys.stderr)
+        sys.exit(1)

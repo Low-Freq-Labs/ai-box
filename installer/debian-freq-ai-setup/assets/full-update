@@ -1,0 +1,168 @@
+#!/usr/bin/python3
+"""Operator-only maintenance entrypoint. No project dependency mutation."""
+import argparse
+import fcntl
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import shlex
+import subprocess
+import sys
+import tempfile
+import shutil
+
+INTERNAL = Path('/usr/local/libexec/freq-ai-setup')
+
+
+def run(*args, capture=False):
+    return subprocess.run(args, check=True, text=True,
+                          stdout=subprocess.PIPE if capture else None).stdout
+
+
+def reboot_status(boot=Path('/boot'), runroot=Path('/run'), release=None):
+    release = release or os.uname().release
+    if (runroot / 'reboot-required').exists() or (runroot / 'reboot-needed').exists():
+        return 'REBOOT REQUIRED: the operating system has requested a reboot.'
+    if 'microsoft' in release.lower():
+        return 'No guest-kernel reboot check: WSL kernel updates are managed by the Windows host.'
+    if boot == Path('/boot') and shutil.which('needrestart'):
+        probe = subprocess.run(['needrestart', '-b', '-r', 'l'], capture_output=True, text=True, timeout=120)
+        status = re.search(r'^NEEDRESTART-KSTA: ([0-3])$', probe.stdout, re.M)
+        if status and status[1] in ('2', '3'):
+            return 'REBOOT REQUIRED: needrestart detected a pending kernel update.'
+        if not status or status[1] == '0' or probe.returncode:
+            return 'Reboot status UNKNOWN: needrestart could not verify the running kernel.'
+        services = re.findall(r'^NEEDRESTART-SVC: (.+)$', probe.stdout, re.M)
+        suffix = '\nServices needing restart: ' + ', '.join(services) if services else ''
+        return 'No reboot requirement detected.' + suffix
+    kernels = sorted(p.name[8:] for p in boot.glob('vmlinuz-*') if p.is_file())
+    if not kernels:
+        return 'Reboot status UNKNOWN: no installed guest kernel could be inspected.'
+    if release not in kernels:
+        return 'REBOOT REQUIRED: the running kernel is no longer among the installed kernels.'
+    for kernel in kernels:
+        if subprocess.run(['dpkg', '--compare-versions', kernel, 'gt', release]).returncode == 0:
+            return f'REBOOT REQUIRED: installed kernel {kernel}; running {release}.'
+    return 'No reboot requirement detected. Service restarts may still be needed.'
+
+
+def site_config():
+    site = Path('/etc/freq-ai-setup/site.conf')
+    if site.is_symlink() or site.stat().st_uid or site.stat().st_mode & 0o022:
+        raise RuntimeError('unsafe site configuration')
+    return {key.removeprefix('export '): shlex.split(value)[0]
+            for line in site.read_text().splitlines() if '=' in line
+            for key, value in [line.split('=', 1)]}
+
+
+def active_agents():
+    active = []
+    for registry in Path('/etc/freq-ai-setup/agents.d').glob('*.conf'):
+        name = registry.stem
+        if not re.fullmatch('[a-z][a-z0-9-]{0,31}', name) or registry.is_symlink():
+            raise RuntimeError('invalid agent registry')
+        uid = pwd.getpwnam(name).pw_uid
+        result = subprocess.run(['pgrep', '-u', str(uid)], stdout=subprocess.DEVNULL)
+        if result.returncode == 0:
+            active.append(name)
+        elif result.returncode != 1:
+            raise RuntimeError('could not determine agent process state')
+    return active
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Preview and update the shared FREQ host; never reboot automatically.')
+    parser.add_argument('--check', action='store_true', help='show the plan and reboot status without applying updates')
+    args = parser.parse_args()
+    site = site_config()
+    if os.geteuid():
+        if pwd.getpwuid(os.getuid()).pw_name != site['FREQ_MASTER_USER']:
+            raise RuntimeError('only the configured operator or root may update shared tools')
+        os.execvp('sudo', ['sudo', '--', sys.argv[0], *sys.argv[1:]])
+    os.chdir('/')
+    os.environ.update(PATH='/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', LC_ALL='C.UTF-8')
+    with open('/run/lock/freq-ai-maintenance.lock', 'r') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        print('FREQ full update\n')
+        print('Includes: Debian 13 packages/kernel; AI runtimes; supported Node/npm; shared developer tools and browser QA.')
+        print('Preserves: projects/venvs/lockfiles, coms/board/Discord application code, credentials and policies.')
+        print('No agent stopping, automatic reboot, package removal, or distro/major-runtime migration.\n')
+        if args.check:
+            run(str(INTERNAL / 'update-managed-tools'), '--check')
+            print(reboot_status())
+            return
+        active = active_agents()
+        if active:
+            raise RuntimeError('stop agent sessions/processes first: ' + ', '.join(active))
+        if run('dpkg', '--audit', capture=True).strip():
+            raise RuntimeError('unfinished dpkg work; repair it before updating')
+        if shutil.disk_usage('/').free < 8 * 1024**3:
+            raise RuntimeError('at least 8 GiB free is required for staged maintenance updates')
+        release = dict(line.split('=', 1) for line in Path('/etc/os-release').read_text().splitlines() if '=' in line)
+        if release.get('ID', '').strip('"') != 'debian' or release.get('VERSION_ID', '').strip('"') != '13':
+            raise RuntimeError('this updater supports Debian 13 only')
+        if input('Check package indexes and prepare the update plan? [y/N]: ').lower() != 'y':
+            print('Cancelled.'); return
+        run('apt-get', 'update', '--error-on=any')
+        policy = run('apt-cache', 'policy', capture=True)
+        for line in policy.splitlines():
+            if 'release ' in line and 'o=Debian' in line:
+                match = re.search(r'(?:^|,)n=([^, ]+)', line.split('release ', 1)[1])
+                if not match or match[1] not in ('trixie', 'trixie-updates', 'trixie-security', 'trixie-backports'):
+                    raise RuntimeError('configured Debian repository is outside Debian 13; no upgrades applied')
+        run('apt-get', '--simulate', '--no-remove', 'full-upgrade')
+        kernel_packages = ['needrestart']
+        package_root = Path('/usr/local/share/freq-ai-setup/devtools/packages')
+        for manifest_name in ('apt-base.txt', 'apt-browser.txt'):
+            for name in (package_root / manifest_name).read_text().splitlines():
+                if not name or name.startswith('#'):
+                    continue
+                if not re.fullmatch('[a-z0-9][a-z0-9+.-]*', name):
+                    raise RuntimeError('invalid baseline package name')
+                installed = subprocess.run(['dpkg-query', '-W', '-f=${Status}', name], capture_output=True, text=True)
+                if installed.returncode or installed.stdout != 'install ok installed':
+                    kernel_packages.append(name)
+        kernel_packages = sorted(set(kernel_packages))
+        if 'microsoft' not in os.uname().release.lower():
+            owned = subprocess.run(['dpkg-query', '-S', '/boot/vmlinuz-' + os.uname().release], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if owned.returncode == 0 and os.uname().machine == 'x86_64':
+                kernel_packages.append('linux-image-amd64')
+            else:
+                print('HELD kernel: not a recognized Debian amd64 guest kernel; host/custom kernel is unchanged.')
+        run('apt-get', '--simulate', '--no-remove', 'install', *kernel_packages)
+        with tempfile.TemporaryDirectory(prefix='freq-update-plan-', dir='/var/tmp') as directory:
+            plan = str(Path(directory) / 'plan.json')
+            run(str(INTERNAL / 'update-managed-tools'), '--check', '--plan', plan)
+            if input('Apply these shared updates? [y/N]: ').lower() != 'y':
+                print('Cancelled; package indexes only were refreshed.'); return
+            if active_agents():
+                raise RuntimeError('an agent process appeared; stop it before applying updates')
+            try:
+                os.environ['NEEDRESTART_MODE'] = 'l'
+                run('apt-get', '-y', '--no-remove', 'install', *kernel_packages)
+                run('apt-get', '-y', '--no-remove', '-o', 'Dpkg::Options::=--force-confdef',
+                    '-o', 'Dpkg::Options::=--force-confold', 'full-upgrade')
+                run(str(INTERNAL / 'setup-container-tools'), '--refresh')
+                run(str(INTERNAL / 'update-managed-tools'), '--apply', '--plan', plan)
+                if run('dpkg', '--audit', capture=True).strip():
+                    raise RuntimeError('post-update dpkg audit failed')
+                failed = run('systemctl', '--failed', '--no-legend', '--no-pager', capture=True).strip()
+                if failed:
+                    raise RuntimeError('failed services require inspection:\n' + failed)
+                held = run('apt-mark', 'showhold', capture=True).strip()
+                if held:
+                    print('HELD by APT policy:\n' + held)
+                print('FULL_UPDATE_COMPLETE: completed selected updates; review any HELD items above.')
+            finally:
+                print('\n' + reboot_status())
+                print('No reboot was performed.')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (Exception, KeyboardInterrupt) as error:
+        print(f'FULL_UPDATE_INCOMPLETE: {error or "cancelled"}', file=sys.stderr)
+        sys.exit(1)

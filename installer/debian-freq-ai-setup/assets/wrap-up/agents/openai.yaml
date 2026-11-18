@@ -1,0 +1,4 @@
+interface:
+  display_name: "Wrap Up Session"
+  short_description: "Checkpoint progress or verify requested session closure"
+  default_prompt: "Use $wrap-up to save a lightweight checkpoint; perform full closure checks only if I explicitly request wrap-up."

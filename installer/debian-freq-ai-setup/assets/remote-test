@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/bin/python3 -I -S /usr/local/lib/freq-remote-tests-client/client.py "$@"

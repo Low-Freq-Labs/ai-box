@@ -1,0 +1,21 @@
+import hashlib,json,sys,types
+if not sys.flags.isolated or not sys.flags.no_site:
+ raise RuntimeError('Isolated Python without site initialization required')
+_specs = @SPECS@
+# Validate every payload before executing any embedded application module.
+_compiled=[]
+for _name,_digest,_source in _specs:
+ if _name in sys.modules or any(_name==n for n,c in _compiled):
+  raise RuntimeError('Embedded module name conflict')
+ if hashlib.sha256(_source.encode()).hexdigest()!=_digest:
+  raise RuntimeError('Embedded source digest mismatch')
+ _compiled.append((_name,compile(_source,'<embedded:'+_name+'>','exec')))
+for _name,_code in _compiled:
+ _module=types.ModuleType(_name)
+ _module.__file__='<embedded:'+_name+'>'
+ sys.modules[_name]=_module
+ exec(_code,_module.__dict__)
+PAYLOAD=sys.modules[_specs[-1][0]]
+PACKAGE_PINS={name:digest for name,digest,source in _specs}
+if __name__=='__main__':
+ raise SystemExit(PAYLOAD.dispatch())

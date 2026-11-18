@@ -244,7 +244,7 @@ class DevMsgTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout,
-            f"SENT: {self.sender} -> sonny (discord)\n",
+            f"SENT: {self.sender} -> sonny\n",
         )
         self.assertEqual(self.calls(), [])
         files = list(self.discord_outbox.iterdir())

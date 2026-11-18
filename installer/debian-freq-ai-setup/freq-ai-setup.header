@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+payload_line=$(awk '/^__AI_FREQ_PAYLOAD_BELOW__$/ { print NR + 1; exit }' "$0")
+[[ -n $payload_line ]] || { printf 'freq-ai-setup: missing payload\n' >&2; exit 2; }
+work=$(mktemp -d "${TMPDIR:-/tmp}/freq-ai-setup.XXXXXX")
+cleanup() { find "$work" -xdev -depth -delete 2>/dev/null || true; }
+trap cleanup EXIT
+trap 'exit 130' HUP INT TERM
+# Source comes from the verified release; no live machine state is embedded.
+tail -n +"$payload_line" "$0" | tar --warning=no-timestamp -xzf - -C "$work"
+(cd "$work" && sha256sum --check --status SHA256SUMS) || {
+    printf 'freq-ai-setup: embedded source checksum failed\n' >&2; exit 2;
+}
+/bin/bash "$work/freq-ai-setup" "$@"
+exit $?
+__AI_FREQ_PAYLOAD_BELOW__

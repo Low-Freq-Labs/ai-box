@@ -1,0 +1,4 @@
+interface:
+  display_name: "Board maintenance"
+  short_description: "Inspect and reconcile interrupted board operations"
+  default_prompt: "Use $board-admin to inspect the relevant state and perform the supported operation within my current grant."

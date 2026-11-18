@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""Offline functional checks for the locally packaged Semgrep dependency set."""
+from contextlib import asynccontextmanager
+import http.server
+import json
+import logging
+import os
+from pathlib import Path
+import tempfile
+import threading
+from unittest.mock import patch
+
+
+def mcp_check():
+    from mcp.server.auth.provider import AccessToken
+    from semgrep.commands.mcp import setup_mcp_server
+    from semgrep.mcp.server import register
+    from starlette.testclient import TestClient
+
+    class FixtureVerifier:
+        async def verify_token(self, token):
+            return AccessToken(token=token, client_id='local-fixture', scopes=[],
+                               resource='http://localhost:8765') if token == 'local-fixture' else None
+
+    @asynccontextmanager
+    async def fixture_lifespan(server):
+        # Pro RPC/issuer integration is outside this dependency check. Exercise
+        # the real Semgrep factory/registration and actual SDK HTTP sessions.
+        yield {}
+
+    with patch('semgrep.commands.mcp.make_token_verifier', return_value=FixtureVerifier()):
+        server = setup_mcp_server('localhost', 8765)
+    register(server)
+    server._mcp_server.lifespan = fixture_lifespan
+    app = server.streamable_http_app()
+    manager = server.session_manager
+    assert manager.session_idle_timeout == 1800 and manager.max_sessions == 10000
+    manager.max_sessions = 1
+    headers = {'Accept': 'application/json, text/event-stream', 'Authorization': 'Bearer local-fixture'}
+    initialize = {'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {
+        'protocolVersion': '2025-06-18', 'capabilities': {},
+        'clientInfo': {'name': 'local-fixture', 'version': '1.0'}}}
+    with TestClient(app, base_url='http://localhost:8765') as client:
+        unauth = client.post('/mcp', json=initialize, headers={'Accept': headers['Accept']})
+        assert unauth.status_code == 401
+        for _ in range(2):
+            response = client.post('/mcp', json=initialize, headers=headers)
+            assert response.status_code == 200, response.text
+            session = response.headers['mcp-session-id']
+            active_headers = dict(headers, **{'mcp-session-id': session, 'mcp-protocol-version': '2025-06-18'})
+            assert client.post('/mcp', json=initialize, headers=headers).status_code == 503
+            ready = client.post('/mcp', json={'jsonrpc': '2.0', 'method': 'notifications/initialized'}, headers=active_headers)
+            assert ready.status_code == 202
+            tools = client.post('/mcp', json={'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'}, headers=active_headers)
+            assert tools.status_code == 200 and tools.json()['result']['tools']
+            assert client.delete('/mcp', headers=active_headers).status_code == 200
+            # Let the in-memory ASGI task group finish session teardown.
+            client.portal.call(__import__('anyio').sleep, 0.02)
+            assert not manager._server_instances, 'terminated MCP sessions were retained'
+    print('PASS Semgrep MCP factory, tool registration, unauthenticated refusal, finite limits and repeated session removal (fixture verifier; no live issuer or Pro RPC)')
+
+
+def telemetry_check():
+    from opentelemetry import trace
+    from opentelemetry._logs import get_logger_provider
+    from semgrep.telemetry import Telemetry
+    import requests
+    records = []
+
+    class Fixture(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            records.append({'path': self.path, 'traceparent': self.headers.get('traceparent')})
+            self.send_response(200); self.end_headers(); self.wfile.write(b'OK')
+
+        def do_POST(self):
+            size = int(self.headers.get('Content-Length', '0'))
+            self.rfile.read(size)
+            records.append({'path': self.path, 'bytes': size})
+            self.send_response(200); self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    listener = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Fixture)
+    thread = threading.Thread(target=listener.serve_forever, daemon=True); thread.start()
+    try:
+        endpoint = 'http://127.0.0.1:' + str(listener.server_port)
+        telemetry = Telemetry(); telemetry.configure(True, endpoint)
+        observed = []
+        with trace.get_tracer('freq-local-compatibility').start_as_current_span('fixture') as span:
+            telemetry.add_resource_attrs({'freq.fixture': True})
+            telemetry.inject(); telemetry.setup_pyro_caml()
+            worker = threading.Thread(target=lambda: observed.append(trace.get_current_span().get_span_context().trace_id))
+            worker.start(); worker.join(timeout=5)
+            assert observed == [span.get_span_context().trace_id]
+            assert requests.get(endpoint + '/probe', timeout=5).status_code == 200
+            logging.getLogger('freq-local-fixture').warning('Local dependency compatibility fixture')
+        trace.get_tracer_provider().force_flush(timeout_millis=5000)
+        get_logger_provider().force_flush(timeout_millis=5000)
+        assert any(r['path'] == '/probe' and r.get('traceparent') for r in records)
+        assert any(r['path'] == '/v1/traces' and r.get('bytes', 0) > 0 for r in records)
+        assert any(r['path'] == '/v1/logs' and r.get('bytes', 0) > 0 for r in records)
+        print('PASS Semgrep telemetry configure/resource/injection, requests/thread instrumentation and local OTLP trace/log export')
+    finally:
+        trace.get_tracer_provider().shutdown()
+        get_logger_provider().shutdown()
+        listener.shutdown(); listener.server_close(); thread.join(timeout=5)
+
+
+if __name__ == '__main__':
+    with tempfile.TemporaryDirectory(prefix='freq-semgrep-compat-') as directory:
+        os.environ['SEMGREP_SETTINGS_FILE'] = str(Path(directory) / 'settings.yml')
+        os.environ['SEMGREP_SEND_METRICS'] = 'off'
+        os.environ['SEMGREP_ENABLE_VERSION_CHECK'] = '0'
+        os.environ['SEMGREP_MCP_DISABLE_TRACING'] = 'true'
+        mcp_check()
+        telemetry_check()

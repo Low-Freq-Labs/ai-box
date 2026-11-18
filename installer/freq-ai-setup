@@ -1,0 +1,5 @@
+#!/bin/bash
+set -euo pipefail
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+exec /bin/bash "$script_dir/debian-freq-ai-setup/bootstrap-freq-ai-setup" "$@"

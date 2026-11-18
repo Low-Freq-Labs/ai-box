@@ -1,0 +1,171 @@
+#!/usr/bin/python3
+"""Prepare the connector, then collect operator-owned Discord configuration."""
+import argparse
+import getpass
+import grp
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path('/opt/freq-agents')
+CONFIG = Path('/etc/freq-ai-setup/discord')
+COMS_CONFIG = Path('/etc/freq-ai-setup/coms.conf')
+
+
+def run(*args):
+    subprocess.run(args, check=True)
+
+
+def atomic(path, data, mode, gid=0):
+    fd, name = tempfile.mkstemp(dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+            os.fchmod(stream.fileno(), mode)
+            os.fchown(stream.fileno(), 0, gid)
+        os.replace(name, path)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+
+
+def prepare():
+    for required in ('connector.py', 'freq-discord.service', 'freq_discord_core.py', 'freq_discord_bot.py',
+                     'agent_control.py', 'freq_groups.py', 'freq-agent-control.socket', 'freq-agent-control.service'):
+        if not (ROOT / 'discord-connector' / required).is_file():
+            raise RuntimeError('Discord connector source missing; run freq-ai-setup first')
+    try:
+        account = pwd.getpwnam('freq-discord')
+        if account.pw_dir != '/var/lib/freq-discord' or account.pw_shell != '/usr/sbin/nologin':
+            raise RuntimeError('Existing freq-discord account has an unexpected home or shell')
+    except KeyError:
+        run('useradd', '--system', '--user-group', '--home-dir', '/var/lib/freq-discord',
+            '--shell', '/usr/sbin/nologin', 'freq-discord')
+    run('usermod', '-a', '-G', 'freq-agents', 'freq-discord')
+    gid = grp.getgrnam('freq-discord').gr_gid
+    # Groups may have been created before Discord was configured.
+    sys.path.insert(0, str(ROOT / 'discord-connector'))
+    from freq_groups import GROUPS, load_groups, save_groups
+    import fcntl
+    with open('/run/lock/freq-ai-maintenance.lock', 'rb') as groups_lock:
+        fcntl.flock(groups_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if GROUPS.exists() or GROUPS.is_symlink():
+            save_groups(load_groups(), gid)
+    run('install', '-d', '-o', 'root', '-g', 'freq-discord', '-m', '0750', str(CONFIG))
+    run('install', '-d', '-o', 'freq-discord', '-g', 'freq-discord', '-m', '0700', '/var/lib/freq-discord')
+    run('install', '-d', '-o', 'root', '-g', 'freq-agents', '-m', '0750', '/var/lib/freq-agents/discord')
+    run('install', '-d', '-o', 'root', '-g', 'freq-agents', '-m', '2770', '/var/lib/freq-agents/discord/outbox')
+    venv = ROOT / 'discord-venv'
+    if not (venv / 'bin/python').is_file():
+        run('python3', '-m', 'venv', str(venv))
+    run(str(venv / 'bin/pip'), 'install', '--disable-pip-version-check', 'discord.py==2.7.1')
+    run('install', '-o', 'root', '-g', 'root', '-m', '0644',
+        str(ROOT / 'discord-connector/freq-discord.service'), '/etc/systemd/system/freq-discord.service')
+    run('install', '-o', 'root', '-g', 'root', '-m', '0755',
+        str(ROOT / 'discord-connector/agent_control.py'), '/usr/local/libexec/freq-agent-control')
+    for unit in ('freq-agent-control.socket', 'freq-agent-control.service'):
+        run('install', '-o', 'root', '-g', 'root', '-m', '0644',
+            str(ROOT / 'discord-connector' / unit), '/etc/systemd/system/' + unit)
+    run('systemctl', 'daemon-reload')
+    run('systemctl', 'enable', '--now', 'freq-agent-control.socket')
+    values = {}
+    for line in COMS_CONFIG.read_text().splitlines():
+        match = re.fullmatch(r"(FREQ_COMS_[A-Z_]+)='([^']*)'", line)
+        if match:
+            values[match[1]] = match[2]
+    tmux_root = Path(values['FREQ_COMS_TMUX_DIR'])
+    for registry in Path('/etc/freq-ai-setup/agents.d').glob('*.conf'):
+        agent = registry.stem
+        if not re.fullmatch(r'[a-z][a-z0-9-]{0,31}', agent):
+            raise RuntimeError('Invalid agent registry')
+        media = Path(values['FREQ_COMS_ROOT']) / agent / 'media'
+        if media.is_symlink():
+            raise RuntimeError('Unexpected media directory symlink')
+        run('install', '-d', '-o', agent, '-g', 'freq-agents', '-m', '2770', str(media))
+        run('setfacl', '-m', 'u::rwx,g::rwx,m::rwx,o::---,d:u::rwx,d:g::rwx,d:m::rwx,d:o::---', str(media))
+        socket = tmux_root / f'agent-{agent}'
+        if socket.is_socket():
+            if socket.is_symlink() or socket.stat().st_uid != pwd.getpwnam(agent).pw_uid:
+                raise RuntimeError('Unexpected tmux socket owner')
+            base = ('runuser', '-u', agent, '--', 'tmux', '-S', str(socket), 'server-access')
+            access = subprocess.check_output((*base, '-l'), text=True)
+            if not any(line.split()[0] == 'freq-discord' for line in access.splitlines() if line.split()):
+                run(*base, '-a', 'freq-discord')
+            run(*base, '-w', 'freq-discord')
+            run('runuser', '-u', agent, '--', 'chmod', '0660', str(socket))
+    return values
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Connect or reconfigure your Discord bot for FREQ agents.')
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--prepare-only', action='store_true', help='install without asking for a token or going online')
+    modes.add_argument('--configure-only', action='store_true', help='change IDs/token without reinstalling the connector')
+    args = parser.parse_args()
+    if os.geteuid() != 0:
+        os.execvp('sudo', ['sudo', '--', sys.argv[0], *sys.argv[1:]])
+    if args.configure_only:
+        if not CONFIG.is_dir() or not (ROOT / 'discord-venv/bin/python').is_file():
+            raise RuntimeError('Discord is not prepared; run setup-discord first')
+        values = {}
+        for line in COMS_CONFIG.read_text().splitlines():
+            match = re.fullmatch(r"(FREQ_COMS_[A-Z_]+)='([^']*)'", line)
+            if match:
+                values[match[1]] = match[2]
+    else:
+        values = prepare()
+    gid = grp.getgrnam('freq-discord').gr_gid
+    if args.prepare_only:
+        print('DISCORD_PREPARED. Run setup-discord to enter IDs and the token.')
+        return
+    print('Discord setup: use Developer Mode → Copy ID for these three IDs.')
+    print('Enable Message Content Intent on the bot. Channel permissions: View Channel, Send Messages, Read Message History, Add Reactions, Attach Files, Embed Links.')
+    print('Press Enter to keep each existing value. The bot token is hidden.')
+    config = json.loads((CONFIG / 'config.json').read_text()) if (CONFIG / 'config.json').exists() else {}
+    for key, label in [('user_id', 'Your Discord user ID'), ('guild_id', 'Server ID'), ('channel_id', 'Channel ID')]:
+        while True:
+            value = input(f"{label}{' [' + str(config[key]) + ']' if key in config else ''}: ").strip()
+            value = value or str(config.get(key, ''))
+            if re.fullmatch(r'[1-9][0-9]{14,19}', value):
+                config[key] = int(value)
+                break
+            print('Enter the numeric Discord ID.')
+    token_path = CONFIG / 'bot-token'
+    token = getpass.getpass('Bot token (hidden; Enter keeps existing): ').strip()
+    if not token and not token_path.exists():
+        raise RuntimeError('A bot token is required; nothing has been activated')
+    if token and (len(token) < 30 or any(c.isspace() for c in token)):
+        raise RuntimeError('Token format invalid; nothing has been activated')
+    config.update(coms_root=values['FREQ_COMS_ROOT'], outbox='/var/lib/freq-agents/discord/outbox',
+                  dev_msg=str(Path(values['FREQ_COMS_BIN_DIR']) / 'dev-msg'))
+    print('Enter keeps existing values. Applying will briefly restart the Discord connector; agents keep running.')
+    if input('Apply settings and connect this bot now? [y/N]: ').strip().lower() != 'y':
+        print('Cancelled. Discord settings unchanged.')
+        return
+    atomic(CONFIG / 'config.json', json.dumps(config, indent=2) + '\n', 0o640, gid)
+    if token:
+        atomic(token_path, token + '\n', 0o600)
+    run('systemctl', 'enable', 'freq-discord.service')
+    run('systemctl', 'restart', 'freq-discord.service')
+    run('systemctl', 'is-active', '--quiet', 'freq-discord.service')
+    run('/usr/local/libexec/freq-ai-setup/refresh-tool-menu')
+    print('DISCORD_CONNECTED. In your configured channel, send: agent-name your message. Pictures may be attached.')
+    print('Use /agents, /start, and /stop to manage registered agents.')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (RuntimeError, ValueError, OSError, subprocess.CalledProcessError) as error:
+        print(f'setup-discord: {error}', file=sys.stderr)
+        sys.exit(1)
+    except (KeyboardInterrupt, EOFError):
+        print('\nCancelled.', file=sys.stderr)
+        sys.exit(130)

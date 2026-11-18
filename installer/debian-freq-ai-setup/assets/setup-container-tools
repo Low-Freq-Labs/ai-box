@@ -1,0 +1,54 @@
+#!/bin/bash
+set -euo pipefail
+[[ $EUID == 0 ]] || { echo 'container setup requires root' >&2; exit 2; }
+internal=/usr/local/libexec/freq-ai-setup
+fail() { echo "container setup: $*" >&2; exit 2; }
+case "${1:-}" in
+    --refresh)
+        [[ $# == 1 && ! -L $internal/container-uidmap ]] || fail 'invalid refresh arguments or helper directory'
+        install -d -o root -g root -m 0700 "$internal/container-uidmap"
+        for tool in newuidmap newgidmap; do
+            [[ -f /usr/bin/$tool && ! -L /usr/bin/$tool && $(stat -c '%U:%G:%a' /usr/bin/$tool) == root:root:4755 ]] || fail "unexpected packaged helper: $tool"
+            [[ ! -L $internal/container-uidmap/$tool ]] || fail 'unexpected helper symlink'
+            install -o root -g root -m 0755 "/usr/bin/$tool" "$internal/container-uidmap/$tool.new"
+            case $tool in newuidmap) capability=cap_setuid ;; newgidmap) capability=cap_setgid ;; esac
+            setcap "$capability=ep" "$internal/container-uidmap/$tool.new"
+            mv -T "$internal/container-uidmap/$tool.new" "$internal/container-uidmap/$tool"
+        done
+        for tool in podman buildah bwrap; do
+            path=/usr/local/bin/$tool
+            if [[ -e $path || -L $path ]]; then
+                [[ -L $path && $(readlink -f "$path") == "$internal/container-client" ]] || fail "preserving unrelated command: $path"
+            else
+                ln -s "$internal/container-client" "$path"
+            fi
+        done
+        systemctl daemon-reload
+        ;;
+    --agent|--remove)
+        agent=${2:-}
+        [[ $# == 2 && $agent =~ ^[a-z][a-z0-9-]{0,31}$ ]] || fail 'invalid agent name'
+        registry=/etc/freq-ai-setup/agents.d/$agent.conf
+        [[ -f $registry && ! -L $registry && $(stat -c '%U:%G:%a' "$registry") == root:root:644 ]] || fail 'registered agent required'
+        [[ $(getent passwd "$agent" | cut -d: -f6) == /home/$agent ]] || fail 'unexpected agent home'
+        tmpfile=/etc/tmpfiles.d/freq-container-$agent.conf
+        [[ ! -L $tmpfile ]] || fail 'unexpected tmpfiles symlink'
+        if [[ $1 == --agent ]]; then
+            [[ -n $(getsubids "$agent") && -n $(getsubids -g "$agent") ]] || fail 'subordinate UID/GID ranges required'
+            printf 'd /run/freq-containers 0711 root root -\nd /run/freq-containers/%s 0700 %s %s -\n' "$agent" "$agent" "$agent" >"$tmpfile"
+            chown root:root "$tmpfile"; chmod 0644 "$tmpfile"
+            systemd-tmpfiles --create "$tmpfile"
+            systemctl enable --now "freq-container@$agent.socket"
+        else
+            systemctl disable --now "freq-container@$agent.socket"
+            systemctl stop "freq-container@$agent.service"
+            [[ $(realpath -m "/run/freq-containers/$agent") == "/run/freq-containers/$agent" ]] || fail 'runtime path escaped'
+            if [[ -d /run/freq-containers/$agent ]]; then
+                find "/run/freq-containers/$agent" -xdev -depth -delete
+            fi
+            rm -f -- "$tmpfile"
+            systemctl reset-failed "freq-container@$agent.service" 2>/dev/null || true
+        fi
+        ;;
+    *) fail 'usage: --refresh | --agent NAME | --remove NAME' ;;
+esac

@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+"""Check every installed dependency, with one exact, explicit Semgrep policy."""
+import importlib.metadata as metadata
+import json
+from pathlib import Path
+import sys
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+
+
+def check(policy=None):
+    distributions = {canonicalize_name(d.metadata['Name']): d for d in metadata.distributions()}
+    exceptions = []
+    if policy and (policy['schema'] != 1 or metadata.version('semgrep') != policy['semgrep_version']):
+        raise RuntimeError('Semgrep compatibility policy is for a different release')
+    for name, dist in distributions.items():
+        for raw in dist.requires or []:
+            req = Requirement(raw)
+            if req.marker and not req.marker.evaluate({'extra': ''}):
+                continue
+            dependency = canonicalize_name(req.name)
+            installed = distributions.get(dependency)
+            override = policy['requirements'].get(dependency) if policy and name == 'semgrep' else None
+            if override:
+                if req != Requirement(override['upstream']) or not installed or installed.version != override['selected']:
+                    raise RuntimeError('Unreviewed Semgrep dependency/metadata drift: ' + dependency)
+                exceptions.append({'package': dependency, 'upstream_requirement': str(req),
+                                   'locally_qualified_version': installed.version})
+            elif installed is None or (req.specifier and installed.version not in req.specifier):
+                raise RuntimeError(f'Unsatisfied dependency: {name} requires {req}')
+    if policy and {r['package'] for r in exceptions} != set(policy['requirements']):
+        raise RuntimeError('Semgrep metadata differs from the qualified policy')
+    print(json.dumps({'dependency_graph_checked': len(distributions),
+                      'local_packaging_exceptions': exceptions}, indent=2))
+
+
+if __name__ == '__main__':
+    policy_path = Path(sys.argv[1]) if len(sys.argv) == 2 else None
+    check(json.loads(policy_path.read_text()) if policy_path and policy_path.exists() else None)

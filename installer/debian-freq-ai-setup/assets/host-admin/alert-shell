@@ -1,0 +1,18 @@
+#!/usr/bin/python3 -I
+"""SSH login shell: accept only the command pinned to the authenticated key."""
+import os
+import re
+import sys
+sys.path.insert(0, '/usr/local/libexec/freq-ai-setup/host-admin')
+from client import body, request
+
+try:
+    if len(sys.argv) != 3 or sys.argv[1] != '-c':
+        raise ValueError('this account accepts alert submissions only')
+    match = re.fullmatch(r'freq-alert-ingress ([a-f0-9]{32})', sys.argv[2])
+    if not match or os.environ.get('SSH_ORIGINAL_COMMAND', '') not in ('', 'send'):
+        raise ValueError('submit the alert body on stdin, with no remote command')
+    request({'area': 'ingress', 'token': match[1], 'body': body()})
+except (OSError, ValueError, KeyError) as error:
+    print(f'service-alerts: {error}', file=sys.stderr)
+    sys.exit(2)

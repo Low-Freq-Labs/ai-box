@@ -1,0 +1,17 @@
+{
+  "name": "freq-shared-webqa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared browser QA tools, isolated from project dependencies",
+  "dependencies": {
+    "ajv": "8.20.0",
+    "jsonpath-plus": "10.4.0",
+    "yaml": "2.9.1",
+    "vnu-jar": "26.10.12",
+    "@playwright/test": "1.64.1",
+    "@axe-core/playwright": "4.14.0",
+    "lighthouse": "13.6.0",
+    "pixelmatch": "7.2.0",
+    "pngjs": "7.0.0"
+  }
+}

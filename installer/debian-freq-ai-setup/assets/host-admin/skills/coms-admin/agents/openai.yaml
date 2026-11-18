@@ -1,0 +1,4 @@
+interface:
+  display_name: "Communications maintenance"
+  short_description: "Inspect receipts and recover safe message delivery"
+  default_prompt: "Use $coms-admin to inspect the relevant state and perform the supported operation within my current grant."

@@ -143,14 +143,15 @@ class ProjectStatusTests(unittest.TestCase):
         self.assertLess(result.stdout.index("alpha task"), result.stdout.index("Middle task"))
         self.assertLess(result.stdout.index("Middle task"), result.stdout.index("Zulu task"))
 
-    def test_overview_and_nonblocked_task_contents_are_never_read(self):
+    def test_corrupt_ready_contents_fail_closed_without_overview(self):
         self.register_task("Opaque ready task")
         (self.project / "overview.md").unlink()
         (self.project / "ready" / "Opaque ready task.md").write_bytes(b"\xff\xfe")
         result = self.run_command(PROJECT_STATUS, "PVE-FREQ")
-        self.assert_ok(result)
-        self.assertIn("│   └── Opaque ready task\n", result.stdout)
-        self.assertNotIn("OVERVIEW", result.stdout)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("STATUS FAILED", result.stderr)
+        self.assertIn("CORRUPT:", result.stdout)
+        self.assertIn("ERROR: ready/Opaque ready task.md:", result.stdout)
 
     def test_blocked_reason_is_required_and_fail_closed(self):
         self.register_task("Broken blocker")

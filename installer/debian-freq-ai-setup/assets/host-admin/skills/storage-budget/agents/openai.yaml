@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shared storage budget"
+  short_description: "Reserve capacity and check shared output headroom"
+  default_prompt: "Use $storage-budget to inspect the relevant state and perform the supported operation within my current grant."

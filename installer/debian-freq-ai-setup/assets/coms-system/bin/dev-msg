@@ -1,0 +1,317 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+readonly DEFAULT_TMUX_DIR=/run/freq-agents/tmux
+readonly DEFAULT_COMS_ROOT=/var/lib/freq-agents/coms
+readonly DEFAULT_DISCORD_ROOT=/var/lib/freq-agents/discord
+readonly DEFAULT_TMUX_BIN=/usr/bin/tmux
+readonly DEFAULT_FLOCK_BIN=/usr/bin/flock
+
+TMUX_DIR=$DEFAULT_TMUX_DIR
+COMS_ROOT=$DEFAULT_COMS_ROOT
+DISCORD_ROOT=$DEFAULT_DISCORD_ROOT
+TMUX_BIN=$DEFAULT_TMUX_BIN
+FLOCK_BIN=$DEFAULT_FLOCK_BIN
+if [ "${FREQ_COMS_TESTING:-0}" = 1 ]; then
+    TMUX_DIR=${DEV_MSG_TMUX_DIR:-$TMUX_DIR}
+    COMS_ROOT=${FREQ_COMS_ROOT:-$COMS_ROOT}
+    DISCORD_ROOT=${FREQ_DISCORD_ROOT:-$DISCORD_ROOT}
+    TMUX_BIN=${DEV_MSG_TMUX_BIN:-$TMUX_BIN}
+    FLOCK_BIN=${DEV_MSG_FLOCK_BIN:-$FLOCK_BIN}
+fi
+
+usage() {
+    printf 'Usage: dev-msg <recipient> <message-title> <full-message>\n' >&2
+}
+
+fail() {
+    if [ -n "${receipt_id:-}" ]; then
+        /usr/bin/python3 "$receipt_helper" failure "$receipt_id" "${1%%:*}" >/dev/null 2>&1 || true
+        printf 'MESSAGE-ID: %s (inspect with dev-msg-status)\n' "$receipt_id" >&2
+    fi
+    printf 'dev-msg: %s\n' "$1" >&2
+    exit 1
+}
+
+receipt_helper="$(dirname -- "$(readlink -f -- "$0")")/../lib/freq_coms_receipts.py"
+idempotency_key=
+body_file=
+receipt_id=
+args=()
+while (($#)); do
+    case $1 in
+        --idempotency-key) [ "$#" -ge 2 ] || fail 'missing idempotency key'; idempotency_key=$2; shift 2 ;;
+        --body-file) [ "$#" -ge 2 ] || fail 'missing body file'; body_file=$2; shift 2 ;;
+        *) args+=("$1"); shift ;;
+    esac
+done
+set -- "${args[@]}"
+if [ -n "$body_file" ]; then
+    [ "$#" -eq 2 ] || fail 'body-file requires recipient and title only'
+    if [ "$body_file" = - ]; then
+        body_text=$(/usr/bin/python3 -c 'import sys; b=sys.stdin.buffer.read(1048577); assert len(b)<=1048576 and b"\0" not in b; b.decode("utf-8"); sys.stdout.buffer.write(b+b".")') || fail 'invalid stdin body'
+    else
+        body_text=$(/usr/bin/python3 -c 'import sys; f=open(sys.argv[1],"rb"); b=f.read(1048577); assert len(b)<=1048576 and b"\0" not in b; b.decode("utf-8"); sys.stdout.buffer.write(b+b".")' "$body_file") || fail 'invalid body file'
+    fi
+    body_text=${body_text%.}
+    set -- "$1" "$2" "$body_text"
+fi
+
+sender=$(/usr/bin/id -un) || fail 'cannot determine sender from the Linux account'
+if [ "${FREQ_COMS_TESTING:-0}" = 1 ] && [ -n "${FREQ_COMS_TEST_SENDER:-}" ]; then
+    sender=$FREQ_COMS_TEST_SENDER
+fi
+
+titleless_discord_ingress=0
+startup=0
+service=0
+if [ "$#" -eq 2 ] && [ "$1" = --service ]; then
+    # Metadata is issued by the root broker, inherited across its privilege drop.
+    # Never interpret caller environment variables as authenticated service identity.
+    service_meta=$(/usr/bin/python3 -I -c '
+import fcntl, json, os, re, stat, sys
+fd = int(sys.argv[1])
+s = os.fstat(fd)
+assert stat.S_ISREG(s.st_mode) and s.st_uid == 0 and stat.S_IMODE(s.st_mode) == 0o600
+assert fcntl.fcntl(fd, fcntl.F_GET_SEALS) & 15 == 15
+d = json.loads(os.read(fd, 4096))
+assert set(d) == {"source", "label", "recipient"}
+assert re.fullmatch(r"[a-z][a-z0-9-]{0,31}", d["source"])
+assert re.fullmatch(r"[A-Z][A-Z0-9._-]{0,47}", d["label"])
+assert d["recipient"] == sys.argv[2]
+print(d["source"]); print(d["label"])
+' "$2" "$sender" 2>/dev/null) || fail 'invalid service delivery authority'
+    service_source=${service_meta%%$'\n'*}
+    service_label=${service_meta#*$'\n'}
+    recipient=$sender
+    title=
+    full_message=$(/usr/bin/cat) || fail 'cannot read service message'
+    titleless_discord_ingress=1
+    service=1
+elif [ "$#" -eq 2 ] && [ "$1" = --startup ]; then
+    recipient=$2
+    [ "$recipient" = "$sender" ] || fail 'STARTUP FAILED: startup messages are self-only'
+    message_source=/usr/local/share/freq-ai-setup/agent-startup-message.md
+    [ -f "$message_source" ] && [ ! -L "$message_source" ] \
+        && [ "$(/usr/bin/stat -c '%U:%G:%a' "$message_source")" = root:root:644 ] \
+        || fail 'STARTUP FAILED: safe startup instructions are unavailable'
+    full_message=$(<"$message_source")
+    title='Session startup'
+    startup=1
+elif [ "$#" -eq 2 ] && [ "$sender" = freq-discord ]; then
+    recipient=$1
+    title=
+    full_message=$2
+    titleless_discord_ingress=1
+elif [ "$#" -eq 3 ]; then
+    recipient=$1
+    title=$2
+    full_message=$3
+else
+    usage
+    exit 1
+fi
+
+[[ "$sender" =~ ^[a-z][a-z0-9_-]*$ ]] \
+    || fail "Linux account name is not a valid agent name: $sender"
+[[ "$recipient" =~ ^[a-z][a-z0-9_-]*$ ]] \
+    || fail "invalid recipient name: $recipient"
+[[ "$full_message" =~ [^[:space:]] ]] \
+    || fail 'full message must contain non-whitespace text'
+if [ "$titleless_discord_ingress" -eq 0 ]; then
+    [[ "$title" =~ [^[:space:]] ]] \
+        || fail 'message title must contain non-whitespace text'
+    [[ "$title" != *$'\n'* && "$title" != *$'\r'* ]] \
+        || fail 'message title must be one line'
+    [ "${#title}" -le 160 ] \
+        || fail 'message title must not exceed 160 characters'
+    [[ "$title" != \[*\] ]] \
+        || fail 'message title must omit the outer brackets; dev-msg adds them'
+fi
+
+receipt_begin=$(printf '%s' "$full_message" | /usr/bin/python3 "$receipt_helper" begin "$recipient" "$title" "$idempotency_key") \
+    || fail 'STORE FAILED: durable receipt/envelope could not be committed'
+IFS='|' read -r receipt_id receipt_new receipt_state <<< "$receipt_begin"
+if [ "$receipt_new" = EXISTING ]; then
+    printf 'EXISTING: %s state=%s; no automatic resend\n' "$receipt_id" "$receipt_state"
+    exit 0
+fi
+
+if [ "$recipient" = sonny ] && [ "$titleless_discord_ingress" -eq 0 ]; then
+    discord_outbox="$DISCORD_ROOT/outbox"
+    [ -d "$discord_outbox" ] \
+        || fail "DISCORD FAILED: outbox is unavailable: $discord_outbox"
+    [ -w "$discord_outbox" ] \
+        || fail "DISCORD FAILED: outbox is not writable: $discord_outbox"
+    [ -x /usr/bin/python3 ] \
+        || fail 'DISCORD FAILED: Python executable is unavailable: /usr/bin/python3'
+
+    file_stamp=$(TZ=America/Chicago /usr/bin/date '+%Y-%m-%d_%H%M%S_%N') \
+        || fail 'DISCORD FAILED: could not create message timestamp'
+    filename="${file_stamp}_$$_${sender}.json"
+    outbox_file="$discord_outbox/$filename"
+    tmp_file=$(/usr/bin/mktemp --tmpdir="$discord_outbox" \
+        ".dev-msg.${filename}.XXXXXXXXXX") \
+        || fail 'DISCORD FAILED: could not create an outbox staging file'
+    trap '/usr/bin/unlink "${tmp_file:-}" 2>/dev/null || true' EXIT
+    /usr/bin/chmod 0660 "$tmp_file" \
+        || fail 'DISCORD FAILED: could not set outbox file permissions'
+    if ! printf '%s' "$full_message" | /usr/bin/python3 -c \
+        'import json, sys; json.dump({"schema": 1, "sender": sys.argv[1], "title": sys.argv[2], "message": sys.stdin.read()}, sys.stdout, ensure_ascii=False, separators=(",", ":"))' \
+        "$sender" "$title" >"$tmp_file"
+    then
+        fail 'DISCORD FAILED: could not serialize the agent reply'
+    fi
+    /usr/bin/python3 "$receipt_helper" publish "$receipt_id" "$tmp_file" "$outbox_file" discord \
+        || fail "DISCORD FAILED: could not publish outbox file: $outbox_file"
+    /usr/bin/unlink "$tmp_file" \
+        || fail "DISCORD FAILED: could not finish publishing outbox file: $outbox_file"
+    tmp_file=
+    trap - EXIT
+    printf 'SENT: %s -> sonny\n' "$sender"
+    exit 0
+fi
+
+socket="$TMUX_DIR/agent-$recipient"
+recipient_inbox="$COMS_ROOT/$recipient/inbox"
+[ -d "$recipient_inbox" ] \
+    || fail "STORE FAILED: recipient inbox is unavailable: $recipient_inbox"
+[ -w "$recipient_inbox" ] \
+    || fail "STORE FAILED: recipient inbox is not writable: $recipient_inbox"
+file_stamp=$(TZ=America/Chicago /usr/bin/date '+%Y-%m-%d_%H%M%S_%N') \
+    || fail 'STORE FAILED: could not create message timestamp'
+sent_time=$(TZ=America/Chicago /usr/bin/date '+%-I:%M %p %Z') \
+    || fail 'STORE FAILED: could not create display timestamp'
+message_sender=$sender
+if [ "$titleless_discord_ingress" -eq 1 ]; then
+    message_sender=sonny
+fi
+if [ "$service" -eq 1 ]; then
+    message_sender="service-$service_source"
+fi
+filename="${file_stamp}_$$_${message_sender}.md"
+message_file="$recipient_inbox/$filename"
+if [ "$service" -eq 1 ]; then
+    payload="${service_label}:"$'\n'
+    payload+="  service alert · $service_source · sent at $sent_time"$'\n'
+elif [ "$startup" -eq 1 ]; then
+    payload="STARTUP-MSG: [Session startup]"$'\n'
+    payload+="  from the installed startup workflow"$'\n'
+elif [ "$titleless_discord_ingress" -eq 1 ]; then
+    payload="SONNY-MSG:"$'\n'
+    payload+="  — sent at $sent_time"$'\n'
+    payload+="  — from Sonny · Discord"$'\n'
+else
+    payload="${sender^^}-MSG: [$title]"$'\n'
+    payload+="  — sent at $sent_time"$'\n'
+    payload+="  — from $sender · team coms (not sonny.aif)"$'\n'
+fi
+payload+="  → dev-read $filename"
+if [ "$startup" -eq 1 ]; then
+    payload+=$'\n  → Verify the handoff, send your priorities to the operator via Discord, and ask before proceeding.'
+fi
+payload_bytes=$(printf '%s' "$payload" | /usr/bin/wc -c)
+[ "$payload_bytes" -le 512 ] \
+    || fail "message notification exceeds 512 bytes: $payload_bytes"
+
+tmp_file=$(/usr/bin/mktemp --tmpdir="$recipient_inbox" \
+    ".dev-msg.${filename}.XXXXXXXXXX") \
+    || fail "STORE FAILED: could not create a temporary message file for $recipient"
+cleanup_tmp() {
+    if [ -n "${tmp_file:-}" ] && [ -e "$tmp_file" ]; then
+        /usr/bin/unlink "$tmp_file" 2>/dev/null || true
+    fi
+}
+trap cleanup_tmp EXIT
+/usr/bin/chmod 0660 "$tmp_file" \
+    || fail 'STORE FAILED: could not set message file permissions'
+printf '%s' "$full_message" > "$tmp_file" \
+    || fail 'STORE FAILED: could not write the full message'
+/usr/bin/python3 "$receipt_helper" publish "$receipt_id" "$tmp_file" "$message_file" pane \
+    || fail "STORE FAILED: could not publish message file: $message_file"
+/usr/bin/unlink "$tmp_file" \
+    || fail "STORE FAILED: could not finish publishing message file: $message_file"
+tmp_file=
+
+[ -S "$socket" ] || fail "TARGET FAILED: recipient socket is unavailable: $socket"
+[ -x "$TMUX_BIN" ] || fail "TARGET FAILED: tmux executable is unavailable: $TMUX_BIN"
+[ -x "$FLOCK_BIN" ] || fail "TARGET FAILED: flock executable is unavailable: $FLOCK_BIN"
+
+# Keep paste and both Enter strokes indivisible relative to other dev-msg
+# callers targeting the same recipient. The lock is advisory and exists only
+# for this command.
+umask 007
+lock_path="$TMUX_DIR/.dev-msg-$recipient.lock"
+exec {lock_fd}>"$lock_path" \
+    || fail "TARGET FAILED: cannot open recipient delivery lock: $lock_path"
+"$FLOCK_BIN" -x "$lock_fd" \
+    || fail "TARGET FAILED: cannot acquire recipient delivery lock: $lock_path"
+
+format='#{pane_id}|#{session_name}|#{window_name}|#{pane_dead}|#{@freq_delivery_pane}'
+if ! pane_rows=$(
+    "$TMUX_BIN" -S "$socket" list-panes -a -F "$format"
+); then
+    fail "TARGET FAILED: cannot query recipient tmux socket: $socket"
+fi
+
+matches=()
+while IFS='|' read -r pane_id session_name window_name pane_dead delivery_marker extra; do
+    [ -z "${extra:-}" ] || continue
+    [ "$session_name" = "$recipient" ] || continue
+    [ "$window_name" = agent ] || continue
+    [ "$pane_dead" = 0 ] || continue
+    [ "$delivery_marker" = 1 ] || continue
+    [[ "$pane_id" =~ ^%[0-9]+$ ]] || continue
+    matches+=("$pane_id")
+done <<< "$pane_rows"
+
+case ${#matches[@]} in
+    0) fail "TARGET FAILED: no live marked delivery pane for recipient: $recipient" ;;
+    1) pane_id=${matches[0]} ;;
+    *) fail "TARGET FAILED: multiple live marked delivery panes for recipient: $recipient" ;;
+esac
+
+buffer_id="freq-dev-msg-${sender}-$$-${RANDOM}"
+buffer_live=0
+
+cleanup() {
+    if [ "$buffer_live" -eq 1 ]; then
+        "$TMUX_BIN" -S "$socket" delete-buffer -b "$buffer_id" \
+            >/dev/null 2>&1 || true
+    fi
+}
+trap 'cleanup; cleanup_tmp' EXIT
+
+if ! printf '%s' "$payload" |
+    "$TMUX_BIN" -S "$socket" load-buffer -b "$buffer_id" -
+then
+    fail 'LOAD FAILED: tmux rejected the exact message buffer'
+fi
+buffer_live=1
+
+/usr/bin/python3 "$receipt_helper" state "$receipt_id" DELIVERY_UNCERTAIN BEFORE_PASTE \
+    || fail 'RECEIPT FAILED: cannot record notification intent'
+if ! "$TMUX_BIN" -S "$socket" paste-buffer -p -r \
+    -b "$buffer_id" -d -t "$pane_id"
+then
+    fail "PASTE FAILED: tmux rejected the message paste into pane $pane_id"
+fi
+buffer_live=0
+
+# Each Enter stroke is deliberately its own tmux operation. Neither is embedded
+# in the payload or batched with paste-buffer or the other Enter stroke.
+enter_failed=0
+# Every UI may still be processing bracketed paste, not just startup input.
+# Hold the recipient lock through both settling intervals and Enter strokes.
+/usr/bin/sleep 0.5
+"$TMUX_BIN" -S "$socket" send-keys -t "$pane_id" Enter \
+    || enter_failed=1
+/usr/bin/sleep 0.5
+"$TMUX_BIN" -S "$socket" send-keys -t "$pane_id" Enter \
+    || enter_failed=1
+[ "$enter_failed" -eq 0 ] \
+    || fail "ENTER FAILED: tmux rejected one or more Enter strokes for pane $pane_id"
+
+/usr/bin/python3 "$receipt_helper" state "$receipt_id" NOTIFIED_TO_PANE ENTERS_CONFIRMED \
+    || fail 'RECEIPT FAILED: notification outcome remains uncertain'
+printf 'SENT: %s -> %s\n' "$message_sender" "$recipient"

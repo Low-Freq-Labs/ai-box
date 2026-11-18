@@ -1,0 +1,19 @@
+#!/usr/bin/python3 -I
+"""Real-caller board metadata correction entry; fixture controls are stripped."""
+import os
+import sys
+for name in tuple(os.environ):
+    if name.startswith('FREQ_BOARD_') or name == 'FREQ_COMS_ROOT':
+        del os.environ[name]
+sys.dont_write_bytecode = True
+sys.path.insert(0, '/usr/local/lib')
+import freq_board_update as update
+from freq_stop_gate import GateError
+if __name__ == '__main__':
+    try:
+        if os.getuid() != os.geteuid() or os.getgid() != os.getegid():
+            raise ValueError('Set-ID execution is unsupported')
+        update.run(sys.argv[1:])
+    except (ValueError, OSError, KeyError, TypeError, GateError, update.board.BoardError) as error:
+        print('UPDATE FAILED: ' + str(error)[:500], file=sys.stderr)
+        sys.exit(1)

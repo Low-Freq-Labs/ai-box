@@ -1,0 +1,81 @@
+#!/usr/bin/python3
+"""Keep native CLI argv/stdin/exit codes; agent jobs use their private worker."""
+import fcntl
+import json
+import os
+from pathlib import Path
+import pwd
+import signal
+import socket
+import struct
+import sys
+import termios
+import threading
+import tty
+
+tool = Path(sys.argv[0]).name
+if tool not in ('podman', 'buildah', 'bwrap'):
+    raise SystemExit('invoke as podman, buildah, or bwrap')
+account = pwd.getpwuid(os.getuid())
+if os.environ.get('FREQ_CONTAINER_WORKER') == '1' or os.getuid() == 0 or not Path('/etc/freq-ai-setup/agents.d', account.pw_name + '.conf').is_file():
+    os.execv('/usr/bin/' + tool, [tool, *sys.argv[1:]])
+
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+lock = threading.Lock()
+terminal = sys.stdin.isatty() and sys.stdout.isatty()
+saved = None
+def send(kind, data):
+    if len(data) > 65536:
+        raise ValueError('request exceeds 64 KiB')
+    with lock:
+        sock.sendall(struct.pack('!cI', kind, len(data)) + data)
+def read_exact(size):
+    data = bytearray()
+    while len(data) < size:
+        part = sock.recv(size - len(data))
+        if not part:
+            raise RuntimeError('worker disconnected; job completion is unconfirmed')
+        data.extend(part)
+    return bytes(data)
+def resize(*_):
+    try:
+        send(b'W', fcntl.ioctl(0, termios.TIOCGWINSZ, b'\0' * 8))
+    except OSError:
+        pass
+try:
+    sock.connect('/run/freq-containers/' + account.pw_name + '/worker.sock')
+    size = os.get_terminal_size() if terminal else os.terminal_size((80, 24))
+    send(b'J', json.dumps(dict(v=1, tool=tool, argv=sys.argv[1:], cwd=os.getcwd(), tty=terminal,
+                              rows=size.lines or 24, cols=size.columns or 80, term=os.environ.get('TERM', 'xterm-256color'))).encode())
+    if terminal:
+        saved = termios.tcgetattr(0)
+        tty.setraw(0)
+        signal.signal(signal.SIGWINCH, resize)
+    def stdin_loop():
+        try:
+            while True:
+                data = os.read(0, 32768)
+                send(b'I' if data else b'E', data)
+                if not data:
+                    break
+        except (OSError, ValueError):
+            pass
+    threading.Thread(target=stdin_loop, daemon=True).start()
+    while True:
+        kind, count = struct.unpack('!cI', read_exact(5))
+        if count > 65536:
+            raise RuntimeError('invalid response frame')
+        data = read_exact(count)
+        if kind == b'X':
+            raise SystemExit(int(data))
+        if kind not in (b'O', b'R'):
+            raise RuntimeError('invalid response channel')
+        stream = sys.stdout.buffer if kind == b'O' else sys.stderr.buffer
+        stream.write(data); stream.flush()
+except (OSError, ValueError, RuntimeError, KeyboardInterrupt) as error:
+    print('FREQ container connection failed: ' + str(error), file=sys.stderr)
+    raise SystemExit(125)
+finally:
+    if saved is not None:
+        termios.tcsetattr(0, termios.TCSADRAIN, saved)
+    sock.close()

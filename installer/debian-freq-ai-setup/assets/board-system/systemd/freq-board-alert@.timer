@@ -1,0 +1,12 @@
+[Unit]
+Description=Run FREQ board alert check every minute for %i
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=1s
+Persistent=false
+Unit=freq-board-alert@%i.service
+
+[Install]
+WantedBy=timers.target

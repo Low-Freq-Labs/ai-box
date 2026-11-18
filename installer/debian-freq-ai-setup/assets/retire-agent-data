@@ -1,0 +1,166 @@
+#!/usr/bin/python3
+"""Internal, operator-authorized board retirement and staging archival."""
+import argparse
+import hashlib
+import os
+from pathlib import Path
+import re
+import shutil
+import stat
+import sys
+from datetime import datetime, timezone
+
+sys.path.insert(0, '/opt/freq-agents/board-system/lib')
+
+
+def inventory(root):
+    result = {}
+    for directory, dirs, files in os.walk(root, followlinks=False):
+        for name in dirs + files:
+            p = Path(directory) / name
+            s = p.lstat()
+            if p.is_symlink():
+                result[str(p.relative_to(root))] = ('link', os.readlink(p))
+            elif p.is_dir() and not os.path.ismount(p):
+                result[str(p.relative_to(root))] = ('dir',)
+            elif stat.S_ISREG(s.st_mode):
+                with p.open('rb') as stream:
+                    result[str(p.relative_to(root))] = ('file', hashlib.file_digest(stream, 'sha256').hexdigest())
+            else:
+                raise RuntimeError(f'cannot archive special file or mounted directory: {p}')
+    return result
+
+
+def archive_lane(lane, archive, gid, master_uid=0):
+    if lane.is_symlink() or not lane.is_dir() or os.path.ismount(lane):
+        raise RuntimeError(f'unsafe staging lane: {lane}')
+    owner = lane.stat()
+    before = inventory(lane)
+    archive.mkdir(mode=0o750, parents=False)
+    os.chown(archive, 0, gid)
+    import subprocess
+    subprocess.run(['setfacl', '-m', f'u:{master_uid}:rx', '--', str(archive)], check=True)
+    destination = archive / lane.name
+    partial = archive / ('.' + lane.name + '.partial')
+    # Copy without following links so shared hardlinks are NOT chmod/chowned.
+    shutil.copytree(lane, partial, symlinks=True)
+    if inventory(partial) != before or inventory(lane) != before:
+        raise RuntimeError(f'archive verification failed; original kept at {lane}')
+    for directory, dirs, files in os.walk(partial, followlinks=False):
+        for p in [Path(directory), *(Path(directory) / n for n in files + dirs)]:
+            os.chown(p, 0, gid, follow_symlinks=False)
+            if not p.is_symlink():
+                # Normalize archived ACLs too: no stale UID grants after reuse.
+                import subprocess
+                subprocess.run(['setfacl', '-b', '--', str(p)], check=True)
+                if p.is_dir():
+                    subprocess.run(['setfacl', '-k', '--', str(p)], check=True)
+                p.chmod(0o750 if p.is_dir() or p.stat().st_mode & 0o111 else 0o640)
+                subprocess.run(['setfacl', '-m', f'u:{master_uid}:' + ('rx' if p.is_dir() else 'r'), '--', str(p)], check=True)
+    partial.rename(destination)  # unique root-owned archive directory; no overwrite
+    shutil.rmtree(lane)
+    # Leave the expected empty lane until account deletion commits. A failed
+    # userdel can then be retried without losing access to the verified archive.
+    lane.mkdir(mode=0o2750)
+    os.chown(lane, owner.st_uid, owner.st_gid)
+    lane.chmod(0o2750)
+    print(f'ARCHIVED {destination}')
+
+
+def retire_board(board, agent, check=False):
+    import freq_board as b
+    projects = board / 'projects'
+    if not projects.exists():
+        return
+    if projects.is_symlink():
+        raise RuntimeError('unsafe board projects path')
+    for project in sorted(projects.iterdir()):
+        if project.name.startswith('.'):
+            continue
+        b.validate_project_id(project.name)
+        if project.is_symlink() or not project.is_dir():
+            raise RuntimeError('unsafe board project')
+        for status_name in b.STATUSES:
+            path = project / status_name
+            if path.is_symlink() or not path.is_dir() or os.path.ismount(path):
+                raise RuntimeError('unsafe board status directory')
+        with b.locked(project):
+            lane = project / 'active' / agent
+            if lane.is_symlink():
+                raise RuntimeError('unsafe active assignment')
+            if not lane.exists():
+                continue
+            for path in sorted(lane.iterdir()):
+                if path.is_symlink() or not path.is_file() or path.stat().st_nlink != 1 or not path.name.endswith('.md'):
+                    raise RuntimeError(f'unexpected active queue entry: {path}')
+                location = b.locate(project, path.name[:-3])
+                text = b.read_text(path)
+                target_status = 'blocked' if b.BLOCKED_RE.search(text) else 'ready'
+                target = project / target_status / path.name
+                if target.exists() or target.is_symlink():
+                    raise RuntimeError(f'board destination occupied: {target}')
+                if check:
+                    continue
+                text = b.append_history(text, b.history_entry('operator', 'AGENT REMOVED',
+                    f'{agent} removed; ownership released to {target_status}; prior history retained'))
+                b.rewrite(path, text)
+                b.move(project, location, target_status)
+            if not check:
+                lane.rmdir()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--check', action='store_true')
+    parser.add_argument('agent')
+    args = parser.parse_args()
+    if os.geteuid() or not re.fullmatch(r'[a-z][a-z0-9-]{0,31}', args.agent):
+        raise RuntimeError('root and an exact agent name required')
+    import grp
+    staging = Path('/home/freq-agents/staging')
+    if staging.resolve() != staging:
+        raise RuntimeError('unsafe staging root')
+    lane = staging / args.agent
+    if lane.is_symlink() or not lane.is_dir() or os.path.ismount(lane):
+        raise RuntimeError('unsafe staging lane')
+    inventory(lane)
+    board = Path('/var/lib/freq-agents/board')
+    config = Path('/etc/freq-ai-setup/board.conf')
+    if config.exists():
+        if config.is_symlink() or config.stat().st_uid or config.stat().st_mode & 0o022:
+            raise RuntimeError('unsafe board config')
+        match = re.search(r"^FREQ_BOARD_ROOT='([^']+)'$", config.read_text(), re.M)
+        if not match:
+            raise RuntimeError('board root missing from config')
+        board = Path(match[1])
+    if board.resolve() != board or not board.is_relative_to('/var/lib/freq-agents/board'):
+        raise RuntimeError('unsafe board root')
+    retire_board(board, args.agent, check=True)
+    if args.check:
+        print(f'RETIRE_CHECK_PASS {args.agent}')
+        return
+    archive = staging / 'archive'
+    if archive.is_symlink():
+        raise RuntimeError('unsafe staging archive')
+    archive.mkdir(mode=0o755, exist_ok=True)
+    if archive.stat().st_uid != 0 or archive.stat().st_mode & 0o022:
+        raise RuntimeError('staging archive must be root-owned and not group/world writable')
+    # Nanoseconds keep concurrent/repeated retirements separate; never merge lanes.
+    import time
+    stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + str(time.time_ns())
+    retire_board(board, args.agent)
+    import pwd, shlex
+    site = Path('/etc/freq-ai-setup/site.conf')
+    if site.is_symlink() or site.stat().st_uid or site.stat().st_mode & 0o022:
+        raise RuntimeError('unsafe site config')
+    value = next(x.split('=', 1)[1] for x in site.read_text().splitlines() if x.startswith('export FREQ_MASTER_USER='))
+    master_uid = pwd.getpwnam(shlex.split(value)[0]).pw_uid
+    archive_lane(lane, archive / stamp, grp.getgrnam('freq-agents').gr_gid, master_uid)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        print(f'retire-agent-data: {error}', file=sys.stderr)
+        sys.exit(1)

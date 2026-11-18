@@ -1,11 +1,23 @@
 {
-  "snapshot": "2026-11-18",
-  "scope": "Maintained AI-Box board, communications, Discord bridge and behavior/template source snapshot. No live configuration, credentials, agent homes, board state or message history.",
+  "snapshot": "ai-box-sync-20261118",
+  "scope": "Maintained infrastructure components and completed existing Debian13 installer source; excludes credentials, private agent/runtime state and site grants.",
+  "original_bundle_sha256": "7a3a6b4a360ab5e677b35135fe53056d6fd3701422db3e1d4debac75914c4142",
+  "initial_public_commit": "41927c96f5c064de61cba095c312ced1f2dd69de",
   "files": [
     {
-      "path": "components/board-system/setup-board",
-      "sha256": "5b2e3cbf7029fff38b0312e85b5a5680128f186b1ef5f66be9f7e631f3c4e426",
-      "bytes": 27368
+      "path": "README.md",
+      "sha256": "aa18f522d6aa3b33e4821834cca9304cb9fc6230fe1a9cf95510ba4f341c7b5e",
+      "bytes": 2504
+    },
+    {
+      "path": "components/board-behavior/AGENTS.board.md",
+      "sha256": "233d57b316fa2313170e0ab92b937f77d8244a390bdfd48d915ce87a17c42cf2",
+      "bytes": 2279
+    },
+    {
+      "path": "components/board-behavior/CLAUDE.board.md",
+      "sha256": "233d57b316fa2313170e0ab92b937f77d8244a390bdfd48d915ce87a17c42cf2",
+      "bytes": 2279
     },
     {
       "path": "components/board-system/bin/agent-skills",
@@ -153,6 +165,161 @@
       "bytes": 2540
     },
     {
+      "path": "components/board-system/setup-board",
+      "sha256": "2c1c3139cca77d9cb1c1d7391dd65d8049893e7870f657cfd522eb61a288d39f",
+      "bytes": 23280
+    },
+    {
+      "path": "components/board-system/skills/agent-skills/SKILL.md",
+      "sha256": "57c2335f6c7bb761cb6924f53e6652a11ebff3412eff125a1fb6620b40dbdcdb",
+      "bytes": 1604
+    },
+    {
+      "path": "components/board-system/skills/agent-skills/agents/openai.yaml",
+      "sha256": "cf4c1e1237531587949d7fb98eec74c300d568fd7ef9c353f632c6687398fa0d",
+      "bytes": 107
+    },
+    {
+      "path": "components/board-system/skills/project-archive/SKILL.md",
+      "sha256": "8bd6626c9db0cfb5321699da01193f0f527d3627c778d542423928a09fbbbda3",
+      "bytes": 1563
+    },
+    {
+      "path": "components/board-system/skills/project-archive/agents/openai.yaml",
+      "sha256": "9775d34c79ee00e30599289b7e76783a39b25162163d7b25742966550470731c",
+      "bytes": 257
+    },
+    {
+      "path": "components/board-system/skills/project-assess/SKILL.md",
+      "sha256": "97568ee15aaf7359957dd08e5b58900ee1c0fb799c559f670e845bb04ffbc251",
+      "bytes": 4956
+    },
+    {
+      "path": "components/board-system/skills/project-assess/agents/openai.yaml",
+      "sha256": "462a54603e692fa0a2e99a27d288d737ba73fe74dc31314f62cbcae01e59eed7",
+      "bytes": 219
+    },
+    {
+      "path": "components/board-system/skills/project-assign/SKILL.md",
+      "sha256": "681ee90ddf4af1c050ba826ff89fe164332b5bf3a69900caa2a986a8f50067da",
+      "bytes": 3122
+    },
+    {
+      "path": "components/board-system/skills/project-assign/agents/openai.yaml",
+      "sha256": "b4c5a0c906fc6cd3fbdc814d427ab244f30dac28b955bfd11db0aa8e96351758",
+      "bytes": 193
+    },
+    {
+      "path": "components/board-system/skills/project-list/SKILL.md",
+      "sha256": "ccd2f10c4647b1e8177fe58a7004c56b8e4bc9b4eed672e05927d541ba7d51c9",
+      "bytes": 1498
+    },
+    {
+      "path": "components/board-system/skills/project-list/agents/openai.yaml",
+      "sha256": "76e0e91829d2c12543d55637ce919408f028fc3d80d01f9dcc8b3b50d55b0980",
+      "bytes": 204
+    },
+    {
+      "path": "components/board-system/skills/project-register/SKILL.md",
+      "sha256": "0d173ad09ce5f0f8cd219cd2209b3dd4e37b03f498bd536622254e431569c85b",
+      "bytes": 1305
+    },
+    {
+      "path": "components/board-system/skills/project-register/agents/openai.yaml",
+      "sha256": "2f38bd4c4b80f55c4636d3ea8922fc0d4e9dcef63df5b8964f4f724456085cd7",
+      "bytes": 250
+    },
+    {
+      "path": "components/board-system/skills/project-status/SKILL.md",
+      "sha256": "876d17b67500a6e6d02bae6e501e90dbbc7f132fab95bc3834089fd125ed8360",
+      "bytes": 2744
+    },
+    {
+      "path": "components/board-system/skills/project-status/agents/openai.yaml",
+      "sha256": "eaaa6988f367c7d5e4735c013ce42e189f451a5739aa947fde64a4c7f2b5793d",
+      "bytes": 196
+    },
+    {
+      "path": "components/board-system/skills/task-block/SKILL.md",
+      "sha256": "0400abe5ae43694093141d9493070f85b0888fd9e275c57e00d310863fde4278",
+      "bytes": 1277
+    },
+    {
+      "path": "components/board-system/skills/task-block/agents/openai.yaml",
+      "sha256": "96357a96a085e59e2aa4c3a384ab0d06a9391c69f18bcdaf7b09376c1d7216e7",
+      "bytes": 207
+    },
+    {
+      "path": "components/board-system/skills/task-dependencies/SKILL.md",
+      "sha256": "b950e80e3814ba9df328788df56b7455073bdb6d53f63783d808bb3c7969c51b",
+      "bytes": 3282
+    },
+    {
+      "path": "components/board-system/skills/task-dependencies/agents/openai.yaml",
+      "sha256": "283fed27f0e2561276c1752cdda7cb5694de0151b013cc6e309d2d4b38971b31",
+      "bytes": 220
+    },
+    {
+      "path": "components/board-system/skills/task-done/SKILL.md",
+      "sha256": "2bea17c60301ab5e87885c812832d450827550d5368497f4ebdac39d68d636ff",
+      "bytes": 1289
+    },
+    {
+      "path": "components/board-system/skills/task-done/agents/openai.yaml",
+      "sha256": "dba9d452c6569392589ce854f10d612d61e40ae17cef9dce13cb1d4cef57cad4",
+      "bytes": 256
+    },
+    {
+      "path": "components/board-system/skills/task-ready/SKILL.md",
+      "sha256": "20c68e5e374133a2885394ff41f42af37f220eaaf699a6a2b873571aefcc3697",
+      "bytes": 2456
+    },
+    {
+      "path": "components/board-system/skills/task-ready/agents/openai.yaml",
+      "sha256": "393a3f56978fa964d2b8b911d930642ac669273f8fa8c88f71ec97e99a960387",
+      "bytes": 238
+    },
+    {
+      "path": "components/board-system/skills/task-register/SKILL.md",
+      "sha256": "4abddeee299923fbce6474796244e7ac96e796feaa46aaa6b1232c6f806d17ad",
+      "bytes": 1715
+    },
+    {
+      "path": "components/board-system/skills/task-register/agents/openai.yaml",
+      "sha256": "94c4b955fffd01061a75858ea45d82a8abde48015ff0c8b0d85d467b2c751d28",
+      "bytes": 242
+    },
+    {
+      "path": "components/board-system/skills/task-status/SKILL.md",
+      "sha256": "3c5fc1ab25d3a337f9f34aac78ac8cb44e93f75f37fba04fd149bf4e35963edb",
+      "bytes": 1540
+    },
+    {
+      "path": "components/board-system/skills/task-status/agents/openai.yaml",
+      "sha256": "510b7f3d5d2e75d1490f3e1aaff9dcc18bf61fbd162c8c047b8f4f5e00521d0d",
+      "bytes": 198
+    },
+    {
+      "path": "components/board-system/skills/task-transfer/SKILL.md",
+      "sha256": "d75d0fd8083838191950d2f82d7e79ddc996675f3f079b6e4161640ac4a6db21",
+      "bytes": 1832
+    },
+    {
+      "path": "components/board-system/skills/task-transfer/agents/openai.yaml",
+      "sha256": "3150b87112704aedaeb337b0d28172a8ead5040f6971163f224e34a504340aa7",
+      "bytes": 241
+    },
+    {
+      "path": "components/board-system/skills/task-update/SKILL.md",
+      "sha256": "be83e905221a795ac9359607806a4e683796b0ba068b1a15c51d48f32f5a03c2",
+      "bytes": 2158
+    },
+    {
+      "path": "components/board-system/skills/task-update/agents/openai.yaml",
+      "sha256": "7734966fb5d90bfb30be249f23438d43c52245291b4127252a4b09e73cb487cd",
+      "bytes": 211
+    },
+    {
       "path": "components/board-system/systemd/freq-board-alert@.service",
       "sha256": "a8c7ad63a4fed9cf3ab0ed68952c47a5086f7e3f08d6062cc601f91c04847666",
       "bytes": 276
@@ -184,8 +351,8 @@
     },
     {
       "path": "components/board-system/tests/test_project_assign.py",
-      "sha256": "796fad9b2b57c6bd0a081a68aa8848fe10c185057062494d1c905239ad3aac7b",
-      "bytes": 6165
+      "sha256": "9c5bb993a6b0b737d953ae4ea912528e2b070d8908b99875db32bbe4ec5d2481",
+      "bytes": 7351
     },
     {
       "path": "components/board-system/tests/test_project_list.py",
@@ -194,8 +361,8 @@
     },
     {
       "path": "components/board-system/tests/test_project_status.py",
-      "sha256": "52c648d839e99276517f8931d2e8bf83e09d48c70e84cab5ad5078b51fba43e0",
-      "bytes": 6406
+      "sha256": "32374317c9f0c81cc4d2c6f8e0d2b8af9e24220f39f2d732f38d748bc06fc7ed",
+      "bytes": 6474
     },
     {
       "path": "components/board-system/tests/test_register.py",
@@ -223,154 +390,9 @@
       "bytes": 7263
     },
     {
-      "path": "components/board-system/skills/project-assign/SKILL.md",
-      "sha256": "681ee90ddf4af1c050ba826ff89fe164332b5bf3a69900caa2a986a8f50067da",
-      "bytes": 3122
-    },
-    {
-      "path": "components/board-system/skills/project-assign/agents/openai.yaml",
-      "sha256": "b4c5a0c906fc6cd3fbdc814d427ab244f30dac28b955bfd11db0aa8e96351758",
-      "bytes": 193
-    },
-    {
-      "path": "components/board-system/skills/task-ready/SKILL.md",
-      "sha256": "20c68e5e374133a2885394ff41f42af37f220eaaf699a6a2b873571aefcc3697",
-      "bytes": 2456
-    },
-    {
-      "path": "components/board-system/skills/task-ready/agents/openai.yaml",
-      "sha256": "393a3f56978fa964d2b8b911d930642ac669273f8fa8c88f71ec97e99a960387",
-      "bytes": 238
-    },
-    {
-      "path": "components/board-system/skills/project-register/SKILL.md",
-      "sha256": "0d173ad09ce5f0f8cd219cd2209b3dd4e37b03f498bd536622254e431569c85b",
-      "bytes": 1305
-    },
-    {
-      "path": "components/board-system/skills/project-register/agents/openai.yaml",
-      "sha256": "2f38bd4c4b80f55c4636d3ea8922fc0d4e9dcef63df5b8964f4f724456085cd7",
-      "bytes": 250
-    },
-    {
-      "path": "components/board-system/skills/task-block/SKILL.md",
-      "sha256": "0400abe5ae43694093141d9493070f85b0888fd9e275c57e00d310863fde4278",
-      "bytes": 1277
-    },
-    {
-      "path": "components/board-system/skills/task-block/agents/openai.yaml",
-      "sha256": "96357a96a085e59e2aa4c3a384ab0d06a9391c69f18bcdaf7b09376c1d7216e7",
-      "bytes": 207
-    },
-    {
-      "path": "components/board-system/skills/task-update/SKILL.md",
-      "sha256": "be83e905221a795ac9359607806a4e683796b0ba068b1a15c51d48f32f5a03c2",
-      "bytes": 2158
-    },
-    {
-      "path": "components/board-system/skills/task-update/agents/openai.yaml",
-      "sha256": "7734966fb5d90bfb30be249f23438d43c52245291b4127252a4b09e73cb487cd",
-      "bytes": 211
-    },
-    {
-      "path": "components/board-system/skills/task-dependencies/SKILL.md",
-      "sha256": "b950e80e3814ba9df328788df56b7455073bdb6d53f63783d808bb3c7969c51b",
-      "bytes": 3282
-    },
-    {
-      "path": "components/board-system/skills/task-dependencies/agents/openai.yaml",
-      "sha256": "283fed27f0e2561276c1752cdda7cb5694de0151b013cc6e309d2d4b38971b31",
-      "bytes": 220
-    },
-    {
-      "path": "components/board-system/skills/project-list/SKILL.md",
-      "sha256": "ccd2f10c4647b1e8177fe58a7004c56b8e4bc9b4eed672e05927d541ba7d51c9",
-      "bytes": 1498
-    },
-    {
-      "path": "components/board-system/skills/project-list/agents/openai.yaml",
-      "sha256": "76e0e91829d2c12543d55637ce919408f028fc3d80d01f9dcc8b3b50d55b0980",
-      "bytes": 204
-    },
-    {
-      "path": "components/board-system/skills/task-done/SKILL.md",
-      "sha256": "2bea17c60301ab5e87885c812832d450827550d5368497f4ebdac39d68d636ff",
-      "bytes": 1289
-    },
-    {
-      "path": "components/board-system/skills/task-done/agents/openai.yaml",
-      "sha256": "dba9d452c6569392589ce854f10d612d61e40ae17cef9dce13cb1d4cef57cad4",
-      "bytes": 256
-    },
-    {
-      "path": "components/board-system/skills/project-assess/SKILL.md",
-      "sha256": "97568ee15aaf7359957dd08e5b58900ee1c0fb799c559f670e845bb04ffbc251",
-      "bytes": 4956
-    },
-    {
-      "path": "components/board-system/skills/project-assess/agents/openai.yaml",
-      "sha256": "462a54603e692fa0a2e99a27d288d737ba73fe74dc31314f62cbcae01e59eed7",
-      "bytes": 219
-    },
-    {
-      "path": "components/board-system/skills/task-transfer/SKILL.md",
-      "sha256": "d75d0fd8083838191950d2f82d7e79ddc996675f3f079b6e4161640ac4a6db21",
-      "bytes": 1832
-    },
-    {
-      "path": "components/board-system/skills/task-transfer/agents/openai.yaml",
-      "sha256": "3150b87112704aedaeb337b0d28172a8ead5040f6971163f224e34a504340aa7",
-      "bytes": 241
-    },
-    {
-      "path": "components/board-system/skills/agent-skills/SKILL.md",
-      "sha256": "57c2335f6c7bb761cb6924f53e6652a11ebff3412eff125a1fb6620b40dbdcdb",
-      "bytes": 1604
-    },
-    {
-      "path": "components/board-system/skills/agent-skills/agents/openai.yaml",
-      "sha256": "cf4c1e1237531587949d7fb98eec74c300d568fd7ef9c353f632c6687398fa0d",
-      "bytes": 107
-    },
-    {
-      "path": "components/board-system/skills/task-status/SKILL.md",
-      "sha256": "3c5fc1ab25d3a337f9f34aac78ac8cb44e93f75f37fba04fd149bf4e35963edb",
-      "bytes": 1540
-    },
-    {
-      "path": "components/board-system/skills/task-status/agents/openai.yaml",
-      "sha256": "510b7f3d5d2e75d1490f3e1aaff9dcc18bf61fbd162c8c047b8f4f5e00521d0d",
-      "bytes": 198
-    },
-    {
-      "path": "components/board-system/skills/project-status/SKILL.md",
-      "sha256": "876d17b67500a6e6d02bae6e501e90dbbc7f132fab95bc3834089fd125ed8360",
-      "bytes": 2744
-    },
-    {
-      "path": "components/board-system/skills/project-status/agents/openai.yaml",
-      "sha256": "eaaa6988f367c7d5e4735c013ce42e189f451a5739aa947fde64a4c7f2b5793d",
-      "bytes": 196
-    },
-    {
-      "path": "components/board-system/skills/task-register/SKILL.md",
-      "sha256": "4abddeee299923fbce6474796244e7ac96e796feaa46aaa6b1232c6f806d17ad",
-      "bytes": 1715
-    },
-    {
-      "path": "components/board-system/skills/task-register/agents/openai.yaml",
-      "sha256": "94c4b955fffd01061a75858ea45d82a8abde48015ff0c8b0d85d467b2c751d28",
-      "bytes": 242
-    },
-    {
-      "path": "components/board-system/skills/project-archive/SKILL.md",
-      "sha256": "8bd6626c9db0cfb5321699da01193f0f527d3627c778d542423928a09fbbbda3",
-      "bytes": 1563
-    },
-    {
-      "path": "components/board-system/skills/project-archive/agents/openai.yaml",
-      "sha256": "9775d34c79ee00e30599289b7e76783a39b25162163d7b25742966550470731c",
-      "bytes": 257
+      "path": "components/board-system/tests/test_transactions.py",
+      "sha256": "a97c1814c016f128cb8f59b5ff8651ff98d21856c5f42e0f766e4af1c1278ed0",
+      "bytes": 8649
     },
     {
       "path": "components/coms-system/README.md",
@@ -413,6 +435,66 @@
       "bytes": 12676
     },
     {
+      "path": "components/coms-system/skills/agent-team/SKILL.md",
+      "sha256": "a47feb719b38dd8bcd8b3c60a4378c687a0e2740d94af7e38d229e6f96fb51a3",
+      "bytes": 1037
+    },
+    {
+      "path": "components/coms-system/skills/agent-team/agents/openai.yaml",
+      "sha256": "1f2903ec045cc1f977f9b8f9d3b8e4dc80f31d1802f123704e7fc863f90c36f3",
+      "bytes": 228
+    },
+    {
+      "path": "components/coms-system/skills/dev-drain/SKILL.md",
+      "sha256": "06f6b7c3344164ff72c4be200aea34d18dd60e8f590adb840f6cace6ea500c92",
+      "bytes": 869
+    },
+    {
+      "path": "components/coms-system/skills/dev-drain/agents/openai.yaml",
+      "sha256": "bed6ad7ed7cd4a24c46a7f644f78ce1ed7f7673546e3657c2f4c5daca2574967",
+      "bytes": 218
+    },
+    {
+      "path": "components/coms-system/skills/dev-inbox/SKILL.md",
+      "sha256": "203dc1e60b186b20e32f3d2f1c48e2edd14df902bc0869f822375e6867387c69",
+      "bytes": 1212
+    },
+    {
+      "path": "components/coms-system/skills/dev-inbox/agents/openai.yaml",
+      "sha256": "f73e2bc767f858909bf4fbfb3ab142703f46f269cc1f357785f5181e210ee920",
+      "bytes": 174
+    },
+    {
+      "path": "components/coms-system/skills/dev-msg/SKILL.md",
+      "sha256": "69f06eab2a9c09def97081344b8d49df6b7a932937d635164c048b236cd6a4a2",
+      "bytes": 3091
+    },
+    {
+      "path": "components/coms-system/skills/dev-msg/agents/openai.yaml",
+      "sha256": "3c855df223af4195e0b4b23bc00d884341182a4463ba527081e27f840970c438",
+      "bytes": 209
+    },
+    {
+      "path": "components/coms-system/skills/dev-msg-status/SKILL.md",
+      "sha256": "6795708b0e4b782ac6e02c56722b4f159ba1bbf126075500def9008bb6649454",
+      "bytes": 928
+    },
+    {
+      "path": "components/coms-system/skills/dev-msg-status/agents/openai.yaml",
+      "sha256": "a59f4edaf88b4913d8209030598edabd1510703b88d6bd7588339ffbdf84a01b",
+      "bytes": 259
+    },
+    {
+      "path": "components/coms-system/skills/dev-read/SKILL.md",
+      "sha256": "08c23b399ebfe8386daa9778e8eda6f2d411915b6b9ead627a54dfc893341c78",
+      "bytes": 951
+    },
+    {
+      "path": "components/coms-system/skills/dev-read/agents/openai.yaml",
+      "sha256": "849fbdec698eafc5c9bc20987ccdd67a51778433fd72a1db9b4b1b7713161d43",
+      "bytes": 178
+    },
+    {
       "path": "components/coms-system/tests/test_agent_team.py",
       "sha256": "f84bdd7b4a16be4890d021926272cf05cec80ee5911f270cd1fbfc483684f28d",
       "bytes": 4526
@@ -429,8 +511,8 @@
     },
     {
       "path": "components/coms-system/tests/test_dev_msg.py",
-      "sha256": "6280702d691ca130a825eb3163911e41b1e07cddeaf7108ab29eca37d30a9df1",
-      "bytes": 15212
+      "sha256": "be0d7406d2abd68f3d96a2ad9fa1a6a38d41c52ed04a21485ac2eb6ee9e2cd99",
+      "bytes": 15202
     },
     {
       "path": "components/coms-system/tests/test_dev_read.py",
@@ -443,64 +525,19 @@
       "bytes": 3734
     },
     {
-      "path": "components/coms-system/skills/dev-msg/SKILL.md",
-      "sha256": "69f06eab2a9c09def97081344b8d49df6b7a932937d635164c048b236cd6a4a2",
-      "bytes": 3091
+      "path": "components/coms-system/tests/test_receipts.py",
+      "sha256": "375d64648c1f54f6388a2d27df3096693f4ad4a137a0ea1698d438ee3473358c",
+      "bytes": 4882
     },
     {
-      "path": "components/coms-system/skills/dev-msg/agents/openai.yaml",
-      "sha256": "3c855df223af4195e0b4b23bc00d884341182a4463ba527081e27f840970c438",
-      "bytes": 209
+      "path": "components/discord-connector/FREQ-AI-SETUP-INTEGRATION.md",
+      "sha256": "8a9d9cc9f32d37ea519e33c919f0c23d43344bfd032895e13972f3c4da793aca",
+      "bytes": 1606
     },
     {
-      "path": "components/coms-system/skills/dev-inbox/SKILL.md",
-      "sha256": "203dc1e60b186b20e32f3d2f1c48e2edd14df902bc0869f822375e6867387c69",
-      "bytes": 1212
-    },
-    {
-      "path": "components/coms-system/skills/dev-inbox/agents/openai.yaml",
-      "sha256": "f73e2bc767f858909bf4fbfb3ab142703f46f269cc1f357785f5181e210ee920",
-      "bytes": 174
-    },
-    {
-      "path": "components/coms-system/skills/dev-drain/SKILL.md",
-      "sha256": "06f6b7c3344164ff72c4be200aea34d18dd60e8f590adb840f6cace6ea500c92",
-      "bytes": 869
-    },
-    {
-      "path": "components/coms-system/skills/dev-drain/agents/openai.yaml",
-      "sha256": "bed6ad7ed7cd4a24c46a7f644f78ce1ed7f7673546e3657c2f4c5daca2574967",
-      "bytes": 218
-    },
-    {
-      "path": "components/coms-system/skills/dev-msg-status/SKILL.md",
-      "sha256": "6795708b0e4b782ac6e02c56722b4f159ba1bbf126075500def9008bb6649454",
-      "bytes": 928
-    },
-    {
-      "path": "components/coms-system/skills/dev-msg-status/agents/openai.yaml",
-      "sha256": "a59f4edaf88b4913d8209030598edabd1510703b88d6bd7588339ffbdf84a01b",
-      "bytes": 259
-    },
-    {
-      "path": "components/coms-system/skills/agent-team/SKILL.md",
-      "sha256": "a47feb719b38dd8bcd8b3c60a4378c687a0e2740d94af7e38d229e6f96fb51a3",
-      "bytes": 1037
-    },
-    {
-      "path": "components/coms-system/skills/agent-team/agents/openai.yaml",
-      "sha256": "1f2903ec045cc1f977f9b8f9d3b8e4dc80f31d1802f123704e7fc863f90c36f3",
-      "bytes": 228
-    },
-    {
-      "path": "components/coms-system/skills/dev-read/SKILL.md",
-      "sha256": "a6f4f5daf447b3ba5b8e874a99edeed0191a18fdc6531b1a926aa367cc69380e",
-      "bytes": 952
-    },
-    {
-      "path": "components/coms-system/skills/dev-read/agents/openai.yaml",
-      "sha256": "849fbdec698eafc5c9bc20987ccdd67a51778433fd72a1db9b4b1b7713161d43",
-      "bytes": 178
+      "path": "components/discord-connector/README.md",
+      "sha256": "4d16fefa6bbe60c087cfd94f469f658f65a2d35681f2a8c4d9c290fac331f92b",
+      "bytes": 5972
     },
     {
       "path": "components/discord-connector/agent_control.py",
@@ -548,19 +585,34 @@
       "bytes": 18
     },
     {
-      "path": "components/board-behavior/AGENTS.board.md",
-      "sha256": "233d57b316fa2313170e0ab92b937f77d8244a390bdfd48d915ce87a17c42cf2",
-      "bytes": 2279
+      "path": "components/discord-connector/test_connector.py",
+      "sha256": "5f25ceddab1d7d2649a46ea2e0384504c1066af252fabd4792e078d871529f6a",
+      "bytes": 8540
     },
     {
-      "path": "components/board-behavior/CLAUDE.board.md",
-      "sha256": "233d57b316fa2313170e0ab92b937f77d8244a390bdfd48d915ce87a17c42cf2",
-      "bytes": 2279
+      "path": "components/discord-connector/test_control.py",
+      "sha256": "71c92609d739fc7d953d61023f8d91364f066bf9bb38e33f48a7518898791e25",
+      "bytes": 4396
     },
     {
-      "path": "docs/installed-templates/tmux.conf.template",
-      "sha256": "b315d4fbb615bc4cd801786ba103fc7819b7693f8dfa084443ee4cc25c20fb36",
-      "bytes": 1793
+      "path": "components/discord-connector/tests/test_attachments.py",
+      "sha256": "cecc909efa114c59bcd5031dcd1a1ccb87ea5422394afb2753824fa94cdb268e",
+      "bytes": 1364
+    },
+    {
+      "path": "components/discord-connector/tests/test_freq_discord_bot.py",
+      "sha256": "48ff1f3d3e13208235a77d65a2848c9face0c3987690db647cc39468a269e26c",
+      "bytes": 7137
+    },
+    {
+      "path": "components/discord-connector/tests/test_freq_discord_core.py",
+      "sha256": "c9841a0007fe335edcdc3c43afc43e40d7e93ac92c4d9c2676ca4cd2902e11d5",
+      "bytes": 6815
+    },
+    {
+      "path": "docs/installed-templates/agent-crontab.md",
+      "sha256": "8bcd5abe414dddecab2346baab25c03bf7ebee58d7723c0f3165589978a27f63",
+      "bytes": 2558
     },
     {
       "path": "docs/installed-templates/agent-lifecycle.template",
@@ -578,14 +630,1474 @@
       "bytes": 6993
     },
     {
-      "path": "docs/installed-templates/agent-crontab.md",
+      "path": "docs/installed-templates/storage-run.md",
+      "sha256": "77066289151f54008ffafc7538023bcbad10556326f7c60492bba7e36c508fa4",
+      "bytes": 4551
+    },
+    {
+      "path": "docs/installed-templates/tmux.conf.template",
+      "sha256": "b315d4fbb615bc4cd801786ba103fc7819b7693f8dfa084443ee4cc25c20fb36",
+      "bytes": 1793
+    },
+    {
+      "path": "installer/PORTABLE-INSTALL.md",
+      "sha256": "c2b5dff16e65dfa528df60e85f7a4511312b1a812eb657e03fda1e877875bbfc",
+      "bytes": 15168
+    },
+    {
+      "path": "installer/QUALIFICATION.md",
+      "sha256": "dfde34f41a5c7866f24eb87c2a25072558cb9e74b31a9d3ef1e1cf9f07fd732f",
+      "bytes": 2146
+    },
+    {
+      "path": "installer/build-installer.py",
+      "sha256": "24817ee68767b518dac9fffc1b5b6c0e9db43675adaaf859acf7df18a9fdd059",
+      "bytes": 2304
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/AI-BOX-SYNC.md",
+      "sha256": "2c9de801891739323205144844602b83b7a8308f21a565002860db38d95ee55f",
+      "bytes": 1134
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/accept-ai-packages.sh",
+      "sha256": "56311f67abacf0fc12d86c46054134f20c2ebe10b2200450a5575e146d8d61a1",
+      "bytes": 5672
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/accept-base.sh",
+      "sha256": "ced82588f101c884a7993c166fb6ad1097c260d414457b484f9f11dde1ae13c8",
+      "bytes": 18750
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/agent-contract.md",
+      "sha256": "8c8cba670821400324fea5fd78be60d4643f13a398ed1102194cc7f72caaefba",
+      "bytes": 4067
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/agent-groups",
+      "sha256": "635fa779d48beefc33797ee2c3740c46281421b68913733a8ec214284b9e39ab",
+      "bytes": 191
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/agent-lifecycle.template",
+      "sha256": "6fb0db3479b1ec4289bbded6b3a99b12e0b7b262161fed3cf5982a77f377dc4b",
+      "bytes": 7478
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/agent-startup-message.md",
+      "sha256": "63075a1a99ccd15d884ffaeb3aa31537beb4e7e46b197947d7abcc236ad5cf32",
+      "bytes": 1600
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/agent-startup-notify",
+      "sha256": "db7c4ad05a25387905f7cee4a5c292214be7f12eebab41fd29105135887efa83",
+      "bytes": 5100
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/agent-trust-current",
+      "sha256": "c37a6062f33c32a2779f18c3141350f0e153e3ed4ff20d49f288a0052ae2eb14",
+      "bytes": 6665
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/ai-packages-install",
+      "sha256": "afbf4a94ea9d88fd962b1c218af23b0e22f5363b584325f34fd8636fab9c598d",
+      "bytes": 14531
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-behavior/AGENTS.board.md",
+      "sha256": "233d57b316fa2313170e0ab92b937f77d8244a390bdfd48d915ce87a17c42cf2",
+      "bytes": 2279
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-behavior/CLAUDE.board.md",
+      "sha256": "233d57b316fa2313170e0ab92b937f77d8244a390bdfd48d915ce87a17c42cf2",
+      "bytes": 2279
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/agent-skills",
+      "sha256": "159e73a2620313321f7cc8f47bbf5ac1c533a298905802d775b5cde0d892fcea",
+      "bytes": 8717
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/board-alert-watch",
+      "sha256": "dfd08635c114d68a4631522605b07b692b59042073561629f885ca1177f7ad14",
+      "bytes": 10753
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/board-stop-hook",
+      "sha256": "0528b64c811b60ad9680861688b32ea0dc9a5f9200be4641427e92cb3a2ba17a",
+      "bytes": 196
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/project-archive",
+      "sha256": "49fa8bd515f45ecae7b3bc04bce9fd39ffe95ad36dbe1b0c6033aaf3bd45e461",
+      "bytes": 4142
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/project-assess",
+      "sha256": "50fcd55dffa5f1012741c0ef23042864b6320935a2947d987c38998e5b523945",
+      "bytes": 400
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/project-assign",
+      "sha256": "a1f62f7a7105b2fc5beffbe392fc0ed92e49db77fcef84d3470100ce409b7adb",
+      "bytes": 4601
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/project-list",
+      "sha256": "f73673e7080dfacdd2c47d40573dfd53606c024be67fdd3ff4ef9c234dff7db6",
+      "bytes": 4143
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/project-register",
+      "sha256": "8008edad21f59457c0762dc6a48380c4b5989951d8891cf76375e714c1ac603f",
+      "bytes": 2642
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/project-status",
+      "sha256": "5948caf3733c451dec0c077c1d50cea4558693d82a2677576c33050ba626cde6",
+      "bytes": 11935
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/task-block",
+      "sha256": "5b075791d65401e9e0e9ad4df2e1608fb981ad96716922d3bb1b3dbf4094175f",
+      "bytes": 1847
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/task-dependencies",
+      "sha256": "e583d96749581a3b158d05a33e178bb76edf9bdb69bb3d36a44240935f00a93c",
+      "bytes": 826
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/task-done",
+      "sha256": "bf9b8a945f7f7f6ed25c1d537d87c40f34d910bc965d5aa2700135256d4e7c09",
+      "bytes": 1961
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/task-project-migrate",
+      "sha256": "cfe4455316979fef221a5c2a61282d1906d46cd74c2841194d3193bbd375c8cc",
+      "bytes": 249
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/task-ready",
+      "sha256": "9da30fc93772ab415ca09d19863dbd095716db0a4358b61af2759749b94320f5",
+      "bytes": 5144
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/task-register",
+      "sha256": "ba33687e8a92cd3298232456738744049e1f2bea278b540a218b41877ae387a5",
+      "bytes": 3025
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/task-status",
+      "sha256": "5d2cf2add1a9ab8b647f446697122012fd02f55183ad0cfd9d096270ea2c6de4",
+      "bytes": 3551
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/task-transfer",
+      "sha256": "dd6f97d15c26b7dbef4546f649822794099f9ca2076a40a26064ad87dca7a1c7",
+      "bytes": 4411
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/bin/task-update",
+      "sha256": "0bbab139907284f41e7cda81de7736d534c0b4466b0ab15eb589a625ffaba1cf",
+      "bytes": 785
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/lib/freq_board.py",
+      "sha256": "d37a2e493256d6ffa7d8fa02ebc66f36ab68c05e818eea3bd28a2da38ddd37a4",
+      "bytes": 12141
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/lib/freq_board_alert.py",
+      "sha256": "1db24e890d1e31f091042053ae603f2db6e87c8dd1a247647a6fdeca74a726c1",
+      "bytes": 8502
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/lib/freq_board_dependencies.py",
+      "sha256": "32c5863e92917b0494706fc96b92634ec8635874eb0f86424a76198b4f5ea5e6",
+      "bytes": 9876
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/lib/freq_board_inspect.py",
+      "sha256": "32fb411060fc7e384b9489adf2e3821d9574458f755acee3547067bfbac429d1",
+      "bytes": 4043
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/lib/freq_board_pause.py",
+      "sha256": "7bfd0b02c65e00be30f2d225af355895a1a90d789ec971bdee679b151c7f2413",
+      "bytes": 6209
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/lib/freq_board_transaction.py",
+      "sha256": "fa9495cb16568fb2d6b079e54bd083b3bc248f78a3aa19bbd72744e68f7533f1",
+      "bytes": 12299
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/lib/freq_board_update.py",
+      "sha256": "c81c023d931b2974563fd96cd74b124c36d3263ae03e1a01e8ac6023c3827127",
+      "bytes": 5084
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/lib/freq_dependency_model.py",
+      "sha256": "c1aa269c957a9bfe9f1e73de03ab08c2765964467238fae08cf56b6b6e338ade",
+      "bytes": 2888
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/lib/freq_project_migration.py",
+      "sha256": "94706bdfddcf4bc94aff6f092bbe236c26f5838ccf4e20cb76bea8c0322df73b",
+      "bytes": 17082
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/lib/freq_stop_gate.py",
+      "sha256": "efdce48e6d257187903a2e776e01b67d3ab7a38c25355e72e7c38507203cb72d",
+      "bytes": 14710
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/lib/freq_task_identity.py",
+      "sha256": "24b6cfa63e01c2054ee127ae11d1fcd756584c5b13684dd578110239cb04c8d3",
+      "bytes": 2540
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/setup-board",
+      "sha256": "2c1c3139cca77d9cb1c1d7391dd65d8049893e7870f657cfd522eb61a288d39f",
+      "bytes": 23280
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/agent-skills/SKILL.md",
+      "sha256": "57c2335f6c7bb761cb6924f53e6652a11ebff3412eff125a1fb6620b40dbdcdb",
+      "bytes": 1604
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/agent-skills/agents/openai.yaml",
+      "sha256": "cf4c1e1237531587949d7fb98eec74c300d568fd7ef9c353f632c6687398fa0d",
+      "bytes": 107
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/project-archive/SKILL.md",
+      "sha256": "8bd6626c9db0cfb5321699da01193f0f527d3627c778d542423928a09fbbbda3",
+      "bytes": 1563
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/project-archive/agents/openai.yaml",
+      "sha256": "9775d34c79ee00e30599289b7e76783a39b25162163d7b25742966550470731c",
+      "bytes": 257
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/project-assess/SKILL.md",
+      "sha256": "97568ee15aaf7359957dd08e5b58900ee1c0fb799c559f670e845bb04ffbc251",
+      "bytes": 4956
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/project-assess/agents/openai.yaml",
+      "sha256": "462a54603e692fa0a2e99a27d288d737ba73fe74dc31314f62cbcae01e59eed7",
+      "bytes": 219
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/project-assign/SKILL.md",
+      "sha256": "681ee90ddf4af1c050ba826ff89fe164332b5bf3a69900caa2a986a8f50067da",
+      "bytes": 3122
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/project-assign/agents/openai.yaml",
+      "sha256": "b4c5a0c906fc6cd3fbdc814d427ab244f30dac28b955bfd11db0aa8e96351758",
+      "bytes": 193
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/project-list/SKILL.md",
+      "sha256": "ccd2f10c4647b1e8177fe58a7004c56b8e4bc9b4eed672e05927d541ba7d51c9",
+      "bytes": 1498
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/project-list/agents/openai.yaml",
+      "sha256": "76e0e91829d2c12543d55637ce919408f028fc3d80d01f9dcc8b3b50d55b0980",
+      "bytes": 204
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/project-register/SKILL.md",
+      "sha256": "0d173ad09ce5f0f8cd219cd2209b3dd4e37b03f498bd536622254e431569c85b",
+      "bytes": 1305
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/project-register/agents/openai.yaml",
+      "sha256": "2f38bd4c4b80f55c4636d3ea8922fc0d4e9dcef63df5b8964f4f724456085cd7",
+      "bytes": 250
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/project-status/SKILL.md",
+      "sha256": "876d17b67500a6e6d02bae6e501e90dbbc7f132fab95bc3834089fd125ed8360",
+      "bytes": 2744
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/project-status/agents/openai.yaml",
+      "sha256": "eaaa6988f367c7d5e4735c013ce42e189f451a5739aa947fde64a4c7f2b5793d",
+      "bytes": 196
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-block/SKILL.md",
+      "sha256": "0400abe5ae43694093141d9493070f85b0888fd9e275c57e00d310863fde4278",
+      "bytes": 1277
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-block/agents/openai.yaml",
+      "sha256": "96357a96a085e59e2aa4c3a384ab0d06a9391c69f18bcdaf7b09376c1d7216e7",
+      "bytes": 207
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-dependencies/SKILL.md",
+      "sha256": "b950e80e3814ba9df328788df56b7455073bdb6d53f63783d808bb3c7969c51b",
+      "bytes": 3282
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-dependencies/agents/openai.yaml",
+      "sha256": "283fed27f0e2561276c1752cdda7cb5694de0151b013cc6e309d2d4b38971b31",
+      "bytes": 220
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-done/SKILL.md",
+      "sha256": "2bea17c60301ab5e87885c812832d450827550d5368497f4ebdac39d68d636ff",
+      "bytes": 1289
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-done/agents/openai.yaml",
+      "sha256": "dba9d452c6569392589ce854f10d612d61e40ae17cef9dce13cb1d4cef57cad4",
+      "bytes": 256
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-ready/SKILL.md",
+      "sha256": "20c68e5e374133a2885394ff41f42af37f220eaaf699a6a2b873571aefcc3697",
+      "bytes": 2456
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-ready/agents/openai.yaml",
+      "sha256": "393a3f56978fa964d2b8b911d930642ac669273f8fa8c88f71ec97e99a960387",
+      "bytes": 238
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-register/SKILL.md",
+      "sha256": "4abddeee299923fbce6474796244e7ac96e796feaa46aaa6b1232c6f806d17ad",
+      "bytes": 1715
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-register/agents/openai.yaml",
+      "sha256": "94c4b955fffd01061a75858ea45d82a8abde48015ff0c8b0d85d467b2c751d28",
+      "bytes": 242
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-status/SKILL.md",
+      "sha256": "3c5fc1ab25d3a337f9f34aac78ac8cb44e93f75f37fba04fd149bf4e35963edb",
+      "bytes": 1540
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-status/agents/openai.yaml",
+      "sha256": "510b7f3d5d2e75d1490f3e1aaff9dcc18bf61fbd162c8c047b8f4f5e00521d0d",
+      "bytes": 198
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-transfer/SKILL.md",
+      "sha256": "d75d0fd8083838191950d2f82d7e79ddc996675f3f079b6e4161640ac4a6db21",
+      "bytes": 1832
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-transfer/agents/openai.yaml",
+      "sha256": "3150b87112704aedaeb337b0d28172a8ead5040f6971163f224e34a504340aa7",
+      "bytes": 241
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-update/SKILL.md",
+      "sha256": "be83e905221a795ac9359607806a4e683796b0ba068b1a15c51d48f32f5a03c2",
+      "bytes": 2158
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/skills/task-update/agents/openai.yaml",
+      "sha256": "7734966fb5d90bfb30be249f23438d43c52245291b4127252a4b09e73cb487cd",
+      "bytes": 211
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/systemd/freq-board-alert@.service",
+      "sha256": "a8c7ad63a4fed9cf3ab0ed68952c47a5086f7e3f08d6062cc601f91c04847666",
+      "bytes": 276
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/systemd/freq-board-alert@.timer",
+      "sha256": "a688339fbb4ef7ad6e2f08ac5cc9fdb976bcf8e9f9031b2d5e1a624e0664bce2",
+      "bytes": 210
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/tests/test_board_alert_transport.py",
+      "sha256": "3f7e55437b84f69d46279befbf2b653501d6fdb8e303855c56d04960c6b8d4d0",
+      "bytes": 4777
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/tests/test_board_alert_watch.py",
+      "sha256": "1b01a2aa1453259b43b158a600d415a9f3997581c13b0fb7aff8711a1e6a468e",
+      "bytes": 8857
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/tests/test_notification_lock.py",
+      "sha256": "5909fdae6832af47f2f7ac088cdc040f38dff8bc79ff8d6774247d83378f6e2b",
+      "bytes": 9294
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/tests/test_project_archive.py",
+      "sha256": "95176b99f4e20ed1537c9b7d923882deaa2e976022c872e612068f9ac46b52fc",
+      "bytes": 9790
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/tests/test_project_assign.py",
+      "sha256": "9c5bb993a6b0b737d953ae4ea912528e2b070d8908b99875db32bbe4ec5d2481",
+      "bytes": 7351
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/tests/test_project_list.py",
+      "sha256": "061c24c031ce78a0cdafc46305f631d0ac2251f163835bfd8a67bcab10e215f2",
+      "bytes": 3625
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/tests/test_project_status.py",
+      "sha256": "32374317c9f0c81cc4d2c6f8e0d2b8af9e24220f39f2d732f38d748bc06fc7ed",
+      "bytes": 6474
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/tests/test_register.py",
+      "sha256": "762457c400c15922fcd7027b2a395d6a06382e15ef980f1af178be23f30f0b94",
+      "bytes": 9038
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/tests/test_task_block_done.py",
+      "sha256": "1c701313d2ff9be3f89611abba60cee153443cc7c271db825982823dad201b06",
+      "bytes": 5326
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/tests/test_task_ready.py",
+      "sha256": "68cdf434856993cb4d432f9d596d6d012cd2178bdffcf8f750c073f6c0d5eb8f",
+      "bytes": 10654
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/tests/test_task_status.py",
+      "sha256": "0f079cc4a47f31eb8e0b6b6fcc77ca0f13bc19e332f3090b6bbc794f6b4a651b",
+      "bytes": 5594
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/tests/test_task_transfer.py",
+      "sha256": "f4fe6807efe7a36346321461cefdcda1bef24a264c1b114d7502e82f9bfd3665",
+      "bytes": 7263
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/tests/test_transactions.py",
+      "sha256": "a97c1814c016f128cb8f59b5ff8651ff98d21856c5f42e0f766e4af1c1278ed0",
+      "bytes": 8649
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/check-python-dependencies",
+      "sha256": "109f504956ee5b8be7b74d32835d06553d99079ab37303aaa2c01b1cce184541",
+      "bytes": 2156
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/check-semgrep-compatibility",
+      "sha256": "0bc4bf1ddf16971d2a8c9a84ee6e76a46cc821fce1744a8739a69d8a06a98e59",
+      "bytes": 6071
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/claude-statusline",
+      "sha256": "56c0fe9f747b8da09b3b484b48f895a56716fd8e4066e5f9b0a61f338c689cb5",
+      "bytes": 630
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/cmd-list",
+      "sha256": "11c33e348cfe991a11e54cfcfc7f94006f995197d6ec3378d5250a71f52f478d",
+      "bytes": 1690
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/README.md",
+      "sha256": "144303f3ad9d0bcc78f73ffd64b9b9ad13ab85612efbcb0acea51eb30ede3169",
+      "bytes": 6685
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/bin/agent-team",
+      "sha256": "7a2a35367790b038f0fccd7b6b27b435fec537870f82435549beb6b5b77934d8",
+      "bytes": 2706
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/bin/dev-drain",
+      "sha256": "2c345ef55a64aca57e2e344343c84bc499bf0a2b684881dd5f85c97167634fac",
+      "bytes": 1394
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/bin/dev-inbox",
+      "sha256": "78d170433722678c5dd4c39b2088ebb121f63f2add6e0617f983975a632981d5",
+      "bytes": 1304
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/bin/dev-msg",
+      "sha256": "5a179be61f274465b12ef852acbefa07f8cf12076e0fde759e97ad8f4fa0ebc6",
+      "bytes": 13095
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/bin/dev-msg-status",
+      "sha256": "c0bc600ff20a4d5b59c35d172c549dc791fdcd64136c9715009436625495dc11",
+      "bytes": 1421
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/bin/dev-read",
+      "sha256": "4de6036ab154bf7f9d7df3761d5c1485f03f5ddfc9f704c987d6962eca96d3f7",
+      "bytes": 2020
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/lib/freq_coms_receipts.py",
+      "sha256": "d357edac4d5ef76c69ff8fd91808df02099780339e861c654cee15781eb13ad8",
+      "bytes": 12676
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/agent-team/SKILL.md",
+      "sha256": "a47feb719b38dd8bcd8b3c60a4378c687a0e2740d94af7e38d229e6f96fb51a3",
+      "bytes": 1037
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/agent-team/agents/openai.yaml",
+      "sha256": "1f2903ec045cc1f977f9b8f9d3b8e4dc80f31d1802f123704e7fc863f90c36f3",
+      "bytes": 228
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-drain/SKILL.md",
+      "sha256": "06f6b7c3344164ff72c4be200aea34d18dd60e8f590adb840f6cace6ea500c92",
+      "bytes": 869
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-drain/agents/openai.yaml",
+      "sha256": "bed6ad7ed7cd4a24c46a7f644f78ce1ed7f7673546e3657c2f4c5daca2574967",
+      "bytes": 218
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-inbox/SKILL.md",
+      "sha256": "203dc1e60b186b20e32f3d2f1c48e2edd14df902bc0869f822375e6867387c69",
+      "bytes": 1212
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-inbox/agents/openai.yaml",
+      "sha256": "f73e2bc767f858909bf4fbfb3ab142703f46f269cc1f357785f5181e210ee920",
+      "bytes": 174
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-msg/SKILL.md",
+      "sha256": "69f06eab2a9c09def97081344b8d49df6b7a932937d635164c048b236cd6a4a2",
+      "bytes": 3091
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-msg/agents/openai.yaml",
+      "sha256": "3c855df223af4195e0b4b23bc00d884341182a4463ba527081e27f840970c438",
+      "bytes": 209
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-msg-status/SKILL.md",
+      "sha256": "6795708b0e4b782ac6e02c56722b4f159ba1bbf126075500def9008bb6649454",
+      "bytes": 928
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-msg-status/agents/openai.yaml",
+      "sha256": "a59f4edaf88b4913d8209030598edabd1510703b88d6bd7588339ffbdf84a01b",
+      "bytes": 259
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-read/SKILL.md",
+      "sha256": "08c23b399ebfe8386daa9778e8eda6f2d411915b6b9ead627a54dfc893341c78",
+      "bytes": 951
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-read/agents/openai.yaml",
+      "sha256": "849fbdec698eafc5c9bc20987ccdd67a51778433fd72a1db9b4b1b7713161d43",
+      "bytes": 178
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/tests/test_agent_team.py",
+      "sha256": "f84bdd7b4a16be4890d021926272cf05cec80ee5911f270cd1fbfc483684f28d",
+      "bytes": 4526
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/tests/test_dev_drain.py",
+      "sha256": "7829c22d9cd7602843e25f2f2d32ae5eca2c4046024679191f1f4cacc1d59d7f",
+      "bytes": 3046
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/tests/test_dev_inbox.py",
+      "sha256": "2c3b19db733f5ac1c446c98ab7ab64caf57560eb7d7cc05eb4cb5aec792d8bd1",
+      "bytes": 2822
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/tests/test_dev_msg.py",
+      "sha256": "be0d7406d2abd68f3d96a2ad9fa1a6a38d41c52ed04a21485ac2eb6ee9e2cd99",
+      "bytes": 15202
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/tests/test_dev_read.py",
+      "sha256": "494cc70508b9aa387c65c88120a85ac94a8293dfc2767626b3ae9df15fffe575",
+      "bytes": 2918
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/tests/test_lifecycle.py",
+      "sha256": "5dca35cf03c255bc4608a8579fbf2235244f6cf3835580cdf1a4126a1d0f8c27",
+      "bytes": 3734
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/tests/test_receipts.py",
+      "sha256": "375d64648c1f54f6388a2d27df3096693f4ad4a137a0ea1698d438ee3473358c",
+      "bytes": 4882
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/configure-master-ssh-key",
+      "sha256": "cdb6698f6a595a049b48e8483579eec2d981e54e3df5710e6a3fbcdaf03d2cb8",
+      "bytes": 6310
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/configure-shared-git",
+      "sha256": "79443dc8902cdf285d3a715bb63fc8eab69b05483f02941824374768f07d7aef",
+      "bytes": 6132
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/configure-stop-guard",
+      "sha256": "1259a45bccfe0792196857bed91c74c88dbf465657b38ce695c0a854a45914e9",
+      "bytes": 4641
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/container-accept",
+      "sha256": "f5f6b25f978defdb0661429bf1ee7ffd902b8228cfe8029f9ed653103b8003aa",
+      "bytes": 5103
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/container-client",
+      "sha256": "2f00adbecce1e77fa2b2e74f0648bef8964238f324d200764d7b56f186d65363",
+      "bytes": 2961
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/container-tools.conf",
+      "sha256": "7d598e072675845a3310dde07ea0bd493a09453528f7fd80d0a3397b349b0c15",
+      "bytes": 206
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/container-worker",
+      "sha256": "b8306b56e5a1f42aa047174a719d1d432993aa97e9bf73b75b03a591c7c88b42",
+      "bytes": 10580
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/create-agent",
+      "sha256": "cf04d939203916910fb78dafcee7e5fd9bcc8f15d1d02afcd1d83a6abd184aec",
+      "bytes": 23709
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/delete-agent",
+      "sha256": "130b3d6fafe50d3b4a164f7779c09c9a2746b71f8438f520f780e79e25003593",
+      "bytes": 11751
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/devtools-accept",
+      "sha256": "eff7769e3ea4bfb94d1a964cbd1493eb1adafc39a149f7f93a431e81932a2dc9",
+      "bytes": 10198
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/devtools-install",
+      "sha256": "c86479891f312a0152753daa9031de611b6844529c0648aebe8cee7dc9e5e44c",
+      "bytes": 12843
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/FREQ-AI-SETUP-INTEGRATION.md",
+      "sha256": "8a9d9cc9f32d37ea519e33c919f0c23d43344bfd032895e13972f3c4da793aca",
+      "bytes": 1606
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/README.md",
+      "sha256": "4d16fefa6bbe60c087cfd94f469f658f65a2d35681f2a8c4d9c290fac331f92b",
+      "bytes": 5972
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/agent_control.py",
+      "sha256": "d0ae1ee8e2474f695d69b08be888b453cdb34aac3eaa3850da47178fb704deac",
+      "bytes": 5181
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/connector.py",
+      "sha256": "805359fe53477479ebf8de8242662a37191c208a111cfc62601ff3a3ec79d548",
+      "bytes": 19916
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/freq-agent-control.service",
+      "sha256": "cae5e62f495c13e84a8067a54fd51bae44ca7c145033ae1b6926d58f5dbaee94",
+      "bytes": 389
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/freq-agent-control.socket",
+      "sha256": "54a3583a6b424d6ae17bbfceb3ba2062675f995504b99a5a9bf6645d013a498d",
+      "bytes": 221
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/freq-discord.service",
+      "sha256": "54a8cf4261659af6f28fd760e724abd99c1a2dd5e6e9ca1d23b28a200d80ca92",
+      "bytes": 877
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/freq_discord_bot.py",
+      "sha256": "94a650c1d53d9f51e2fa2fd57fd705b74bd1852ba8ec0c2ad216cae613820df3",
+      "bytes": 13834
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/freq_discord_core.py",
+      "sha256": "11927eed4bf9f6c7083cd7320e2e2a8cf961101ad8276fcee828103dc51865ee",
+      "bytes": 16111
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/freq_groups.py",
+      "sha256": "ba2bc3734394bfc0068e9b31856367fe86564fdf23d3e3faa3ab1bc7b19b4ac4",
+      "bytes": 4527
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/requirements.txt",
+      "sha256": "7941e6c8802683d54abf20e082893ac14081e73df44ec64f184c6a97adeaf15b",
+      "bytes": 18
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/test_connector.py",
+      "sha256": "5f25ceddab1d7d2649a46ea2e0384504c1066af252fabd4792e078d871529f6a",
+      "bytes": 8540
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/test_control.py",
+      "sha256": "71c92609d739fc7d953d61023f8d91364f066bf9bb38e33f48a7518898791e25",
+      "bytes": 4396
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/tests/test_attachments.py",
+      "sha256": "cecc909efa114c59bcd5031dcd1a1ccb87ea5422394afb2753824fa94cdb268e",
+      "bytes": 1364
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/tests/test_freq_discord_bot.py",
+      "sha256": "48ff1f3d3e13208235a77d65a2848c9face0c3987690db647cc39468a269e26c",
+      "bytes": 7137
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/discord-connector/tests/test_freq_discord_core.py",
+      "sha256": "c9841a0007fe335edcdc3c43afc43e40d7e93ac92c4d9c2676ca4cd2902e11d5",
+      "bytes": 6815
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/freq-agent-sandbox.c",
+      "sha256": "7d8fb2e6c069ff0570fcd4ef0a48f54ed590e89c1049540d162bceb868b52157",
+      "bytes": 6453
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/freq-agent-tmux.conf",
+      "sha256": "372c6bc4d8ba8ce74e19a081ca211ec762a8336e29268953c11d5d4fa247ddee",
+      "bytes": 173
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/freq-ai-setup-profile.sh",
+      "sha256": "7aa4da2a4121219da8c5d2c1043875d778e69f1298363349b07d2c9969bf6d4b",
+      "bytes": 2351
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/freq-container@.service",
+      "sha256": "787cd3f1084414b4680eff6d305d4765035b676b385ab4f523ff86f920bccd9e",
+      "bytes": 2293
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/freq-container@.socket",
+      "sha256": "d0dfa89eb7a34f6636c0ea629d7249c4fe2bba3ec45df5f323f220264bc85434",
+      "bytes": 242
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/freq-maintenance.conf",
+      "sha256": "0020a5fcb4cc6f175ad49562fd435c92197e03c65a457c844eab1db87b32550e",
+      "bytes": 54
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/full-update",
+      "sha256": "809bbaa50e5cb2ca486b6723353e46c4d0f484960eff65d1d2f82048ff172b5e",
+      "bytes": 9366
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/README.md",
+      "sha256": "d58854b3f727e4e566213cce948a145445a2c1faea4d4f642106cdb781b3e265",
+      "bytes": 12652
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/agent-crontab",
+      "sha256": "720d30a44fba3f4050946dbc3b9cc254e755afc48079d13a251f65dea83ea4d9",
+      "bytes": 1946
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/agent-crontab.md",
       "sha256": "8bcd5abe414dddecab2346baab25c03bf7ebee58d7723c0f3165589978a27f63",
       "bytes": 2558
     },
     {
-      "path": "docs/installed-templates/storage-run.md",
-      "sha256": "77066289151f54008ffafc7538023bcbad10556326f7c60492bba7e36c508fa4",
-      "bytes": 4551
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/alert-shell",
+      "sha256": "a0931ad486744153c32c3ba88949c8bc378c4d3d8aae93dbb3dbd4438971eb2d",
+      "bytes": 791
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/board_api.py",
+      "sha256": "b13e12afcba210da8f4e80774fc0d6a3ed446df646ffa9d5431e514d9fa04806",
+      "bytes": 3960
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/board_maintenance.py",
+      "sha256": "d96bb275fa0172700522553fca2887028ab55b89069ae4615f9101161eca2dcf",
+      "bytes": 8023
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/board_repair_operator.py",
+      "sha256": "7cc90518d4491387f58b744fc2cf2159f2ed4dca3c2d52065a95f49e37ba9dde",
+      "bytes": 13310
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/board_worker.py",
+      "sha256": "d4baf76dc720cc12cccac6c62141123e8f6c0e85174a39a8d57e24760dde7548",
+      "bytes": 5367
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/broker.py",
+      "sha256": "184acd9bae8b81a2130fdd491c0943c76d39ed1d8ba1b9a44a4a3bcff57dadbe",
+      "bytes": 26931
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/client.py",
+      "sha256": "374aefdd2671abc753458a026164079a297d01aa956c38c0beb9d3133d434731",
+      "bytes": 9906
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/coms_ledger.py",
+      "sha256": "2b25de94603a386d833450c46abe1ddd57ba87a3bef7eba53adf52f8b6eb9edf",
+      "bytes": 1332
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/coms_maintenance.py",
+      "sha256": "73e8c8939cd605130e9b37b4f6ca2d820ebc0700f9f6b2d98b7b6715f3fc3f71",
+      "bytes": 6529
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/control_capacity.py",
+      "sha256": "0b24495eb4dca868311b0111f8f4b2e12f55c1827f2d0a523d227f673335e517",
+      "bytes": 4071
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/freq-control-capacity.service",
+      "sha256": "6d538c72277f8a6af6da00596d9619e8b494c410bba25a6c68d4985eba9ec83c",
+      "bytes": 400
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/freq-control-capacity.timer",
+      "sha256": "df88897b45d08be997d4febad4b102add4e41c01efbe476617c8c23b08ae80ab",
+      "bytes": 161
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/freq-host-admin.service",
+      "sha256": "e26ad423a456331d0beea2f735e57e35ebfe132341e680691c05beca40908324",
+      "bytes": 727
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/freq-host-admin.socket",
+      "sha256": "7a780bad2f39ca1d898e333a956cb05d6e9f6712c5c4d5e4fefcc799d97b2fa0",
+      "bytes": 201
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/freq-host-network-recovery.service",
+      "sha256": "0fb7282e1dcf56e69423d5502159fea3d49ca2c328b297fa195f0cc55a710509",
+      "bytes": 359
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/freq-host-packages.service",
+      "sha256": "4da73b147f292d97dbc3ce1e171df2d52c7a9c59c18cbabc6060a7ab10c838fb",
+      "bytes": 771
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/freq-host-routes.service",
+      "sha256": "dfaf59829d215be667d96320d2c5a9c99b9ffb334d79d3b6a928d62a13aa07f6",
+      "bytes": 307
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/install.py",
+      "sha256": "4a21122c69dd50725249885af540053c176a96db426d2bc432cc8429e6e3bc7c",
+      "bytes": 9147
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/maintenance.py",
+      "sha256": "6bc0cfcef5827fcc1aaf545b5756975df5fcfbe040a3493cf2a762f5e8c1e1b8",
+      "bytes": 4970
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/network_file.py",
+      "sha256": "554674e4f5eda245437795dd9a74381026c62476efb9e710059c73a177814e39",
+      "bytes": 11413
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/own_crontab.py",
+      "sha256": "9a35ca5ec4d3a4e5a5df50eb33ca50cab9c27d10b55310c43b3a443176d23a08",
+      "bytes": 3641
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/packages.py",
+      "sha256": "e4229aefbf80f79c26101481b3bbc64d6786ab778d6dcc70b10fc5b1eef81a91",
+      "bytes": 8343
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/skills/board-admin/SKILL.md",
+      "sha256": "9e7d5b413357481972f9b1cb77c763606168ce0a6aaa77214054851c35d3feeb",
+      "bytes": 2069
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/skills/board-admin/agents/openai.yaml",
+      "sha256": "61530701a8b7222acb8f0d6804c10e4425f828ad3a16791ec3114521fd230b5e",
+      "bytes": 249
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/skills/coms-admin/SKILL.md",
+      "sha256": "3d9edecef5568b7f4a2698d1494f6fdffc7e1104afb6627be3203be05e2632b7",
+      "bytes": 1937
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/skills/coms-admin/agents/openai.yaml",
+      "sha256": "2d57522eaf099a61f3c3edff23077e6321129763705c1c8bd98479f15cad288b",
+      "bytes": 257
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/skills/host-tooling/SKILL.md",
+      "sha256": "b49543bc894c064552f700f266aa2fa837abfff621f055cbbf2dc43d052fed36",
+      "bytes": 1925
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/skills/host-tooling/agents/openai.yaml",
+      "sha256": "ed0a3d3671dca81c5c31db1e730f5443ee8d16cb3420c8aba2cb1eb225bc73ed",
+      "bytes": 262
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/skills/storage-budget/SKILL.md",
+      "sha256": "bb05e96727d889de3ce9a4a04b6884382a0b61de39d837ee977a7f5da54df2d9",
+      "bytes": 3401
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/skills/storage-budget/agents/openai.yaml",
+      "sha256": "c528ceb2a5a73b832d95e54645dae229ad4686e1652fb282217d6da1d7be0082",
+      "bytes": 255
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/sshd.conf",
+      "sha256": "b9dd1974d7672288d9176d9b2d73c455e42a326ad2e17d787bde3766599f44ad",
+      "bytes": 362
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/storage-run",
+      "sha256": "7bca375a47ae966afbf79bd4b34ef4ef6e48892aeec7b82d2c1025161fc56b8c",
+      "bytes": 102
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/storage-run.md",
+      "sha256": "de1c25d91fd215a840f1c79a39e153f3cb78ba14c39d98e42ea3bc7251b52ef5",
+      "bytes": 4032
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/storage_budget.py",
+      "sha256": "6203da6150655d0d6db1dd7733e8d26daa09be9ec2b6359a8689407095999c17",
+      "bytes": 12809
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/storage_run.py",
+      "sha256": "8ff76c9476ef0facc10631f186f1553287239437b37cca94a79712178d6c676e",
+      "bytes": 8590
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/test_board_repair_operator.py",
+      "sha256": "2e5619dc0cca40eb6232625007663f089739c84c98dc20d12ab29568be890e4c",
+      "bytes": 6001
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/test_delegated_maintenance.py",
+      "sha256": "7139bceb986dc30c5091f93e9fe7137aeb9d1289e0df2e078ce0878456da8f9b",
+      "bytes": 9763
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/test_host_admin.py",
+      "sha256": "3f44d1d765f14ea3a516b9c78b1ba4c8e1592916db56a39de6293d847916c4b3",
+      "bytes": 9040
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/test_maintenance.py",
+      "sha256": "7537dd44304c08caabcad20eef49e187592f2f8e6b38612ce5f90a7a27e16cf8",
+      "bytes": 7576
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/test_network_file.py",
+      "sha256": "c0588ea405763ad6248a3df4e8ac16d156a7e700ab6e186d61c7d56ba7dae1ba",
+      "bytes": 3129
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/test_own_crontab.py",
+      "sha256": "f32c6069b2fd24acb65f98ce29101491e704e69adc30b385c1302ed0a0034629",
+      "bytes": 3914
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/test_packages.py",
+      "sha256": "a1a4b7ddc0cc010d0ee9fef07fa703dfd1f4d80c562ea3cad66f7cb148712181",
+      "bytes": 5878
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/test_storage_supervision.py",
+      "sha256": "c8a8be36c798ac6abcfebe8086402564db7f46dad333ba4a27e35b739b2d196e",
+      "bytes": 4916
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/host-admin/tooling.py",
+      "sha256": "7ac1d41745f9ab2ceea30d1415ef09e5add229f3698c10f6385de8aa978e722a",
+      "bytes": 9371
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/install-dev-apt",
+      "sha256": "1a142c38ef2bbc48cfbdb6b58256e13fdf67e07e616440b9a638bfe09af3348f",
+      "bytes": 883
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/level-set",
+      "sha256": "fe5a6173874af07b00efa631cfd43bf64d886c2ef767794ff88cff8ac8d72ad4",
+      "bytes": 2038
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/manage-agent-groups",
+      "sha256": "437dfc94e233a12b3ad9f296dbdc146a737ba00468edfe42f47f2e2f6b5f0ac2",
+      "bytes": 2769
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/nexus-prompt.sh",
+      "sha256": "fbcf42897d5dec26551fcae68bf17c9386ab0a0f1ce7e51e6f38d315e8260ae7",
+      "bytes": 8590
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/packages/apt-base.txt",
+      "sha256": "0447a38278e0b834c839829ba25af1aceeb6e06fec6561e8657c772f4ee2cd4d",
+      "bytes": 1201
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/packages/apt-browser.txt",
+      "sha256": "4354a073fe2c1c5eedcd47e8e1fd1a0860caea01363cf0d8e5e99e0168113298",
+      "bytes": 1405
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/packages/binaries.json",
+      "sha256": "5ff4ebb44d1e56831f2097b096ef06d27b458d12053147067b30749268fd4335",
+      "bytes": 3125
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/packages/python/fonttools.in",
+      "sha256": "bca2b78640e2beef1c3a4366c0fe1471ccec4d5ff632c21a7595a671b70b61b4",
+      "bytes": 24
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/packages/python/fonttools.txt",
+      "sha256": "a4b860118488ccf7ca279bafd1d9df31e454b37cdce1418f1017179f806284b7",
+      "bytes": 18831
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/packages/python/semgrep-compat-policy.json",
+      "sha256": "c722a64e540800c65e647dcf39b6fba1ec869b8cb65dc280d92de02758da854e",
+      "bytes": 967
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/packages/python/semgrep-overrides.txt",
+      "sha256": "42b3b15685c6e0006e20d7c519f5590a2953a342b8df564ffdec3078df7d3864",
+      "bytes": 206
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/packages/python/semgrep.in",
+      "sha256": "438e6c4e4552eb8b053c8bb7d0859d1360a8f4053e9db26581db00251f1c8616",
+      "bytes": 17
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/packages/python/semgrep.txt",
+      "sha256": "63e8e3eddd1887e8118f14c5c21d07bc8ccbed8e4acd521804f29cc75ec863c0",
+      "bytes": 80768
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/packages/webqa/package-lock.json",
+      "sha256": "b394194ec4919433921863feeb8b7c830d7158db9ae726621f28f7632af313cd",
+      "bytes": 69822
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/packages/webqa/package.json",
+      "sha256": "365c029ee3b6d52ab30e0383de84794b853aebbebf11482bfa77732dfac5c513",
+      "bytes": 428
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/refresh-tool-menu",
+      "sha256": "5a65a50db7568cf68bba4d9ba389a9c935464b75600a644152dc1b680f966599",
+      "bytes": 1993
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/remote-test",
+      "sha256": "8509becc844fe0a5ae863792081451770f9b72ca5b8aa49bd0468c58c3a4a528",
+      "bytes": 93
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/remote-tests/README.md",
+      "sha256": "c0780e5b344b6f577a1c18d382bcdaa2eb2fc1bc0a7622752988ce52e7f9b91b",
+      "bytes": 3037
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/remote-tests/build_client.py",
+      "sha256": "e9977dd241385b434235565425f659949e80d71837d09665577d7f1921ebd42d",
+      "bytes": 859
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/remote-tests/client.py",
+      "sha256": "0f4c6e9953b6836b173875fc38fb403b31e60f6c15ab7830b285950f5b839436",
+      "bytes": 48263
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/remote-tests/loader.py.in",
+      "sha256": "7bc55520aaa153d642e6337739a006b4f67a4a9e2901b0a081335541c829d213",
+      "bytes": 927
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/remote-tests/source/_freq_payload_client.py",
+      "sha256": "28892571e65a8aa7ad48de1ccec87401617a32da35fb9bb7ab65eb942e34266c",
+      "bytes": 32390
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/remote-tests/source/phase_client_fixture.py",
+      "sha256": "317e021f6dd1a7d81554a767f17def9c0d7e9fcb8f7f02f9f0485d07670cdd35",
+      "bytes": 2118
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/remote-tests/source/phase_event_fixture.py",
+      "sha256": "d869c1da098080021587189ab7ffac0028dabc1529740a6fece62ef7b73f32a8",
+      "bytes": 3992
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/remote-tests/source/phase_reader_fixture.py",
+      "sha256": "6e1dc629deb6f4a427ee959441cfed303e2b15b0f40507f22bb00b4d71a99147",
+      "bytes": 3529
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/remote-tests/source/visibility_model.py",
+      "sha256": "a3edfd4dae45aad0c13a81f924a309db0976d6e6fc4304817961c9e7daf6f5b2",
+      "bytes": 2690
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/remote-tests/visibility_model.py",
+      "sha256": "a3edfd4dae45aad0c13a81f924a309db0976d6e6fc4304817961c9e7daf6f5b2",
+      "bytes": 2690
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/render-agent-contract",
+      "sha256": "b39f83a4c0b28526f619d1952456292089356bc8bd8f3621eb4c12abca31d514",
+      "bytes": 786
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/retire-agent-data",
+      "sha256": "29f5a0a1ab47338ad273cda3f5b0281a54caf4e88bb3b30f78a1fdb87b3b1819",
+      "bytes": 7590
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/semgrep-compat-policy.json",
+      "sha256": "c722a64e540800c65e647dcf39b6fba1ec869b8cb65dc280d92de02758da854e",
+      "bytes": 967
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/setup-board",
+      "sha256": "2c1c3139cca77d9cb1c1d7391dd65d8049893e7870f657cfd522eb61a288d39f",
+      "bytes": 23280
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/setup-coms",
+      "sha256": "743954e07f44a4e38e635c7da156e7a0d625e66cae3ee0105ad1ba2512da7469",
+      "bytes": 9779
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/setup-container-tools",
+      "sha256": "a98148c1ac7bb1eebfe38e96eb9480fd3b19b573a95d824a5844aa9b3ea03127",
+      "bytes": 3154
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/setup-discord",
+      "sha256": "884f8be88b414d683de5c89962030ffe269477b6e431845633a1f67bbbe53f54",
+      "bytes": 8875
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/shared-git",
+      "sha256": "7a29b5f2524d181737c3801c5e2c44a7e0c1280bbc0b824a8262663777adc5e8",
+      "bytes": 3675
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/shared-projects-README.md",
+      "sha256": "3de25292642a70bb74576711324b71342edb99cfc44624d613809d03b457d68d",
+      "bytes": 501
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/shared-staging-README.md",
+      "sha256": "385ff67ab4fb11bf7b915c376c3480149e89daf3e0ce8b02fe68a86336e836fa",
+      "bytes": 373
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/ssh-agent-policy.conf",
+      "sha256": "951546a69176a42fdc1bd98f2768c7c72218f0ce30908ca7e1e89c2dca13826d",
+      "bytes": 339
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/stop-gate.md",
+      "sha256": "9261cbdcc8ff1dd075507a47d863453f73b596729c8d1f7400a441c0b4a2dbe7",
+      "bytes": 7003
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/tmux.conf.template",
+      "sha256": "b315d4fbb615bc4cd801786ba103fc7819b7693f8dfa084443ee4cc25c20fb36",
+      "bytes": 1793
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/update-agent",
+      "sha256": "c0b8ca7dcef7b87c2e7a2f7fbbb0e8398870894f7fd9b656167ffe3d4204d866",
+      "bytes": 14858
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/update-agent.md",
+      "sha256": "5cd6c913c6da0e548fc1dfdb4d24dfadf6773621faa07a17c1c9868cc981914c",
+      "bytes": 2459
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/update-discord",
+      "sha256": "48970e53b3d4e9be6dd13ff6edd3eb16c9dd7a21ce28c2f59a051b168ae009ca",
+      "bytes": 213
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/update-managed-tools",
+      "sha256": "76d45e758f9f1c30476a911cd467f3649beb37888b1f5c1246f6ccf54d4bdce2",
+      "bytes": 20000
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/update-shared-git",
+      "sha256": "ccb2144d6193a7f2f08a1bb79f1def4ca2afd635aadf45a3fe903263172b9e9f",
+      "bytes": 193
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/update-ssh-key",
+      "sha256": "1a3351e0350dc6f175e3b01f6b9fb883000df63671894a186907747924ec1a56",
+      "bytes": 201
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/vm-admin/README.md",
+      "sha256": "892cd9ebafee1d9972ff05f470d8edba87287be9b3eab316f3ab5598d51339bf",
+      "bytes": 1811
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/vm-admin/install.py",
+      "sha256": "ef70c8bc9113241b4b3dcd3772c1feab6e1d7238f6cca2a40a31c24db902227a",
+      "bytes": 6824
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/vm-admin/skills/vm-admin/SKILL.md",
+      "sha256": "8758c8156c5d20006d94d1ac23a4094ccef5bcc4d07da07eca16f5ab0d761dbd",
+      "bytes": 3666
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/vm-admin/skills/vm-admin/agents/openai.yaml",
+      "sha256": "370e4f525ce34f70e5eb2d02a35d7fb6779da7309d11dda6b459ba80ac4ed89e",
+      "bytes": 240
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/vm-admin/vm-root",
+      "sha256": "2aed01d33e980560c61d307310d86e596bd551d84be42c1d1a9e2f45870158ab",
+      "bytes": 1903
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/watch-once/SKILL.md",
+      "sha256": "0b10bfa7824f54ba532abb4a1ced4cd616e55550674aa1044740a0be013de396",
+      "bytes": 2869
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/watch-once/agents/openai.yaml",
+      "sha256": "11563acdc70d967ba2e43cb7d8a3a63aa13a6df2d9b0240884445410532449b3",
+      "bytes": 203
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/watch-once/scripts/watch_once.py",
+      "sha256": "6cca028bf8766f2179576bdcab8b901d3dc1beae1b2f4243e9b1701265f591d2",
+      "bytes": 5154
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/wrap-up/SKILL.md",
+      "sha256": "1249a973c2ec2e0fc1a0838ad3986a80ce8fea9a2aa8594b87809ebb8117249f",
+      "bytes": 6265
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/wrap-up/agents/openai.yaml",
+      "sha256": "44aa41764b0c1708849fa30c9af819ce8e1c150d7c54df0ea36ec8e8ae9331c3",
+      "bytes": 257
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/wrap-up-state",
+      "sha256": "5e0a9904ebac71e934b3ce7c0a9ed2414d29f938e566201333cf6c2a0e8fe17d",
+      "bytes": 5514
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/bootstrap-freq-ai-setup",
+      "sha256": "0a0abd6ce9374167b47d84aa1f522dc94043c440afe0ac7006c2d4524d325927",
+      "bytes": 12147
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/freq-ai-setup.header",
+      "sha256": "3f51392328ae34d3f1a89c5addf7acf566d24d297f14b3ee2d2b8e394853dbf5",
+      "bytes": 729
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/install-base.sh",
+      "sha256": "c4a134557c6fc0ff60dbed74c6832f088d0cc99d300c508ce6d0c21dbebdea96",
+      "bytes": 30484
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/resolve-dev-locks.sh",
+      "sha256": "8bf013eda8d01baba832b7bdd8ab1c0643329a1bd85dabad0992db571c75cfcb",
+      "bytes": 1125
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/retire-freq-ops.sh",
+      "sha256": "802c87d49af32ebc6c8093a2145d5b66d7e6ec26d0325f2a0f1eb3150a8e4f07",
+      "bytes": 13101
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/test-agent-colors.sh",
+      "sha256": "5ef04492da615efd7f008bbf1b1e086d49eba2d8ec75cf49d2d6291598723cfa",
+      "bytes": 985
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/container-boundary.py",
+      "sha256": "9c773431698241586425ad51317236c16ca35b4428cfab24e3471ccce568ccab",
+      "bytes": 8207
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/install-dev-container.sh",
+      "sha256": "7b5b4205531a4fba6c9d1d6d57756436e16822be85085d2f6de5f92d2a896d10",
+      "bytes": 1228
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/maintenance-site.conf",
+      "sha256": "93582fe600acd78c93790b47d852bbdb6efced978dd7c478d05eb3ce3d00e01a",
+      "bytes": 190
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/policy-rc.d",
+      "sha256": "13d1acf7d6de4486e64997699ffde9b5b9532f58a5071d5bca277cb48ef4f0c0",
+      "bytes": 103
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test-component-install.sh",
+      "sha256": "e830abb6fda2ef90feb110a56690ea4cbde4a259ea80c6f6aaa5364ef880c094",
+      "bytes": 3660
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test-update-container.sh",
+      "sha256": "ad9bbc62af64f03ebb67c2bcc8c9184d686af3ce59be70afbbaefae25db7a7fd",
+      "bytes": 2092
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_agent_groups.py",
+      "sha256": "c9a9bb47595611f39e066db966c8884778c406322b21ed327b7f9370979e8201",
+      "bytes": 12354
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_archive_deployment.py",
+      "sha256": "153739c108e08a693b1fb51b964c8390885bb87aab948ef5e1b1d9b95b6bf6ee",
+      "bytes": 2434
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_container_worker.py",
+      "sha256": "56cbc4f93f7bfbdd1b7956771596bf08b9691f0e2aea58de0b5c6acbc9057a50",
+      "bytes": 3448
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_dev_reset_container.py",
+      "sha256": "2afcd4c831b4717234cdaf6354b8e0317431461124af24d0fa867f90b97db7e8",
+      "bytes": 1352
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_devtools.py",
+      "sha256": "aaaa9115e8cef96885a1e68d1a86eb69663fe29aee6c7443fd34a9810b6ad627",
+      "bytes": 3642
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_maintenance.py",
+      "sha256": "4119d5f1505fedf600b59f7ab4a53f2e6a9c70364c7185f1198b58db95758008",
+      "bytes": 7189
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_model_defaults.py",
+      "sha256": "a1452b0d401c0f5694d4e05fa9245369388769fcdea39975b5e965d4685293b6",
+      "bytes": 1678
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_portable_sync.py",
+      "sha256": "126edf350bbcd734cb2f2e6c5d430527414f653f91111a7eb9ebbb6302dcd1a7",
+      "bytes": 5179
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_remote_phase_client.py",
+      "sha256": "1400e99742223ba08e8c8ff6ec7c1c0dcd200589e1fa0eb124af3201d39aaaaa",
+      "bytes": 4956
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_reset_container.py",
+      "sha256": "f328f78b1d868bf63b0b0b964957ad385bc54a2405400c2ec314656d6df69cc3",
+      "bytes": 5368
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_shared_git.py",
+      "sha256": "8b114ffb15fa6bcac62e11262f4d88d5a938099d7fe3f9b9c38a26d69b7cc300",
+      "bytes": 7117
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_shared_git_agent.py",
+      "sha256": "1e172e352991555a08b7f5eca0d365cc4aa3e4acb07055b85ef54f3b476c9e43",
+      "bytes": 2535
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_startup.py",
+      "sha256": "795d5ba06f3b640af121d6e02837e1814e3c05149d5d24718906ebe5c314e49d",
+      "bytes": 12227
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_stop_guard_install.py",
+      "sha256": "7973c832638d80ed7cf13643081a8e2b46a9aa5d772ccdba771cbcb02dc5b944",
+      "bytes": 2022
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_update_agent.py",
+      "sha256": "8c434306327502bf61267643712b2b4bd2a684b478a056be237e714720902c84",
+      "bytes": 9989
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_update_discord.py",
+      "sha256": "f8f221e2cae849c523fbec918f26418ac5771b6fe659676b500e6fdc40bbcd26",
+      "bytes": 4167
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_update_ssh_key.py",
+      "sha256": "2a03cbc7c45594e387e7d25c04c6f1e7901ef263c7aee4298dc700a45ddb71ca",
+      "bytes": 3249
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_wrap_up.py",
+      "sha256": "8a9058fa73317d52299ca15808085aee475b4d8946d7653fe6ad6b2629af6661",
+      "bytes": 3888
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/wrap-up-agent-fixture.sh",
+      "sha256": "fce263566f736faa08596ba5131db0730719c208b1d6e1fa640c2e5af3af7004",
+      "bytes": 1804
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/upgrade-maintenance.py",
+      "sha256": "08c354a2ae66b8a278b1b879f037cdbaf5964da1ad414056db20b2b947218445",
+      "bytes": 7209
+    },
+    {
+      "path": "installer/freq-ai-setup",
+      "sha256": "22862cc94dad7a3c639adbfd49787721d1b49e91c2719000c680e5f2d1e443f8",
+      "bytes": 181
     }
   ]
 }

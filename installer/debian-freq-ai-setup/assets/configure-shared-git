@@ -1,0 +1,132 @@
+#!/usr/bin/python3
+"""Interactive shared GitHub setup; validate before atomic publication."""
+import fcntl
+import getpass
+import grp
+import json
+import os
+from pathlib import Path
+import re
+import socket
+import sys
+import tempfile
+import urllib.request
+import warnings
+
+ROOT = Path("/etc/freq-shared-git")
+
+
+def validate_fields(name, email, token):
+    if not name or len(name) > 200 or any(ord(c) < 32 for c in name):
+        raise ValueError("Enter a nonempty, single-line commit name.")
+    if not re.fullmatch(r"[^\s<>@]+@[^\s<>@]+", email):
+        raise ValueError("A commit email is required; there is no default.")
+    if not re.fullmatch(r"ghp_[A-Za-z0-9]+", token):
+        raise ValueError("Paste a classic GitHub token beginning with ghp_.")
+
+
+def verify(token):
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+    request = urllib.request.Request(
+        "https://api.github.com/user",
+        headers={"Authorization": f"Bearer {token}", "User-Agent": "FREQ-AI-SETUP",
+                 "Accept": "application/vnd.github+json"})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    try:
+        with opener.open(request, timeout=20) as response:
+            user = json.load(response)
+            scopes = response.headers.get("X-OAuth-Scopes", "")
+        login = user["login"]
+        if not re.fullmatch(r"[A-Za-z0-9-]+", login):
+            raise ValueError()
+        return login, scopes
+    except Exception:
+        raise ValueError("GitHub authentication failed or GitHub is unreachable; configuration unchanged.") from None
+
+
+def publish(root, config, gid):
+    fd, temporary = tempfile.mkstemp(prefix=".candidate-", dir=root)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            json.dump(config, stream)
+            stream.write("\n")
+            stream.flush()
+            os.fchown(stream.fileno(), 0, gid)
+            os.fchmod(stream.fileno(), 0o640)
+            os.fsync(stream.fileno())
+        os.replace(temporary, root / "config.json")
+        directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def capability_summary(scopes):
+    granted = {s.strip() for s in scopes.split(',')}
+    return '\n'.join(f"{scope}: {'available' if scope in granted else 'MISSING'}"
+                     for scope in ('repo', 'workflow', 'delete_repo'))
+
+
+def main():
+    if sys.argv[1:] == ["--help"]:
+        print("Usage: update-shared-git\nConfigure shared GitHub identity/token; Enter retains existing values.")
+        return
+    if sys.argv[1:] or os.geteuid() != 0:
+        raise ValueError("Run update-shared-git as the operator, with no arguments.")
+    if not sys.stdin.isatty():
+        raise ValueError("An interactive terminal is required for hidden token entry.")
+    gid = grp.getgrnam("freq-agents").gr_gid
+    if not ROOT.exists():
+        ROOT.mkdir(mode=0o750)
+        os.chown(ROOT, 0, gid)
+    info = ROOT.lstat()
+    if ROOT.is_symlink() or not ROOT.is_dir() or info.st_uid or info.st_mode & 0o027:
+        raise ValueError("Unsafe shared Git directory; refusing changes.")
+    lock = os.open(ROOT, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        config = ROOT / "config.json"
+        old = {}
+        if config.exists() or config.is_symlink():
+            info = config.lstat()
+            if config.is_symlink() or not config.is_file() or info.st_uid or info.st_mode & 0o027:
+                raise ValueError("Unsafe existing Git configuration; refusing changes.")
+            old = json.loads(config.read_text())
+        print("FREQ shared GitHub setup\nEnter keeps existing values. All agents share this account's access.")
+        name_default = old.get("name", socket.gethostname())
+        name = input(f"Git commit name [{name_default}]: ").strip() or name_default
+        email_default = old.get("email", "")
+        email = input(f"Git commit email{f' [{email_default}]' if email_default else ''}: ").strip() or email_default
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", getpass.GetPassWarning)
+            token = getpass.getpass("GitHub classic token (hidden; Enter keeps existing): ").strip() or old.get("token", "")
+        validate_fields(name, email, token)
+        login, scopes = verify(token)
+        print(f"GitHub account: {login}\nCommit identity: {name} <{email}>\nToken scopes: {scopes or '(not reported)'}")
+        print("Classic-token permissions apply to every agent. Repository/organization policies still apply.")
+        print(capability_summary(scopes))
+        print("Use a dedicated agent account. Agents may create private repositories and push authorized project work under this account.")
+        print("repo enables private repository work; workflow enables workflow-file updates; delete_repo enables explicitly requested deletion.")
+        print("Missing scopes limit those operations; setup cannot grant token scopes. Public publication, deletion, and other owners require explicit direction.")
+        if input("Apply shared Git configuration? [y/N]: ").lower() != "y":
+            print("Cancelled; configuration unchanged.")
+            return
+        publish(ROOT, dict(name=name, email=email, token=token, login=login), gid)
+        print("SHARED_GIT_READY: authentication verified; existing and future agents use these settings on their next git/gh command.")
+        print("Repository write access is not proven until tested against an intended repository. Use HTTPS Git remotes.")
+    finally:
+        os.close(lock)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, OSError, EOFError, KeyboardInterrupt, getpass.GetPassWarning):
+        print("SHARED_GIT_FAILED: setup did not complete. Check name/email, token, connectivity, and permissions; no token is printed.", file=sys.stderr)
+        sys.exit(1)

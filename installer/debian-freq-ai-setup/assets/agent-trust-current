@@ -1,0 +1,189 @@
+#!/usr/bin/python3
+"""Persist Codex or Claude trust for a working directory without exposing config."""
+
+from __future__ import annotations
+
+import fcntl
+import json
+import os
+import pwd
+import re
+import subprocess
+import sys
+import tempfile
+import tomllib
+from pathlib import Path
+from typing import NoReturn
+
+CODEX_MARKER = "# Managed by FREQ-AI-SETUP universal folder-trust policy."
+
+
+def fail(message: str) -> NoReturn:
+    print(f"agent trust policy: {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def project_roots(requested: str) -> list[str]:
+    resolved = os.path.realpath(requested)
+    if not os.path.isdir(resolved):
+        fail("working directory is unavailable")
+    roots = [resolved]
+    try:
+        result = subprocess.run(
+            ["/usr/bin/git", "-C", resolved, "rev-parse", "--show-toplevel"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        result = None
+    if result is not None and result.returncode == 0:
+        git_root = os.path.realpath(result.stdout.rstrip("\n"))
+        if os.path.isdir(git_root) and git_root not in roots:
+            roots.append(git_root)
+    return roots
+
+
+def atomic_write(path: Path, text: str, mode: int) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def toml_header(path: str) -> str:
+    return f"[projects.{json.dumps(path, ensure_ascii=True)}]"
+
+
+def toml_section(lines: list[str], wanted: str) -> tuple[int, int] | None:
+    for start, line in enumerate(lines):
+        if line.strip() != wanted:
+            continue
+        end = start + 1
+        while end < len(lines) and not lines[end].lstrip().startswith("["):
+            end += 1
+        return start, end
+    return None
+
+
+def codex_trust(text: str, path: str) -> tuple[str, bool]:
+    parsed = tomllib.loads(text) if text.strip() else {}
+    project = parsed.get("projects", {}).get(path)
+    wanted = toml_header(path)
+    lines = text.splitlines(keepends=True)
+    if isinstance(project, dict):
+        if project.get("trust_level") == "trusted":
+            return text, False
+        bounds = toml_section(lines, wanted)
+        if bounds is None:
+            fail("existing Codex trust entry uses an unsupported layout")
+        start, end = bounds
+        for index in range(start + 1, end):
+            if re.match(r"^\s*trust_level\s*=", lines[index]):
+                newline = "\r\n" if lines[index].endswith("\r\n") else "\n"
+                lines[index] = f'trust_level = "trusted"{newline}'
+                return "".join(lines), True
+        lines.insert(start + 1, 'trust_level = "trusted"\n')
+        return "".join(lines), True
+    separator = "" if not text or text.endswith("\n\n") else ("\n" if text.endswith("\n") else "\n\n")
+    addition = f'{CODEX_MARKER}\n{wanted}\ntrust_level = "trusted"\n'
+    return f"{text}{separator}{addition}", True
+
+
+def codex_remove(text: str, path: str) -> tuple[str, bool]:
+    lines = text.splitlines(keepends=True)
+    bounds = toml_section(lines, toml_header(path))
+    if bounds is None:
+        return text, False
+    start, end = bounds
+    marker = start - 1
+    if marker < 0 or lines[marker].strip() != CODEX_MARKER:
+        return text, False
+    del lines[marker:end]
+    while len(lines) >= 2 and not lines[-1].strip() and not lines[-2].strip():
+        lines.pop()
+    return "".join(lines), True
+
+
+def update_codex(config_dir: Path, roots: list[str], remove: bool) -> None:
+    config = config_dir / "config.toml"
+    original = config.read_text(encoding="utf-8") if config.exists() else ""
+    mode = (config.stat().st_mode & 0o777) if config.exists() else 0o600
+    updated = original
+    changed = False
+    for root in roots:
+        updated, root_changed = codex_remove(updated, root) if remove else codex_trust(updated, root)
+        changed = changed or root_changed
+    if changed:
+        tomllib.loads(updated) if updated.strip() else None
+        atomic_write(config, updated, mode)
+
+
+def update_claude(user_home: Path, roots: list[str], remove: bool) -> None:
+    state = user_home / ".claude.json"
+    if state.exists():
+        data = json.loads(state.read_text(encoding="utf-8"))
+        mode = state.stat().st_mode & 0o777
+    else:
+        data = {}
+        mode = 0o600
+    projects = data.setdefault("projects", {})
+    if not isinstance(projects, dict):
+        fail("Claude projects state has an unsupported layout")
+    changed = False
+    for root in roots:
+        if remove:
+            if root in projects:
+                del projects[root]
+                changed = True
+            continue
+        project = projects.setdefault(root, {})
+        if not isinstance(project, dict):
+            fail("Claude project state has an unsupported layout")
+        if project.get("hasTrustDialogAccepted") is not True:
+            project["hasTrustDialogAccepted"] = True
+            changed = True
+    if changed:
+        atomic_write(state, json.dumps(data, indent=2, ensure_ascii=False) + "\n", mode)
+
+
+def main() -> int:
+    if len(sys.argv) not in (3, 4) or sys.argv[1] not in ("codex", "claude"):
+        fail("usage: agent-trust-current TOOL [--remove] DIRECTORY")
+    tool = sys.argv[1]
+    remove = len(sys.argv) == 4 and sys.argv[2] == "--remove"
+    if len(sys.argv) == 4 and not remove:
+        fail("unknown option")
+    requested = sys.argv[3] if remove else sys.argv[2]
+    roots = [os.path.realpath(requested)] if remove else project_roots(requested)
+
+    identity = pwd.getpwuid(os.getuid())
+    user_home = Path(identity.pw_dir)
+    config_dir = user_home / ".codex"
+    if tool == "codex":
+        config_dir.mkdir(mode=0o700, parents=False, exist_ok=True)
+        lock_path = config_dir / ".config.toml.trust.lock"
+    else:
+        lock_path = user_home / ".claude.json.trust.lock"
+
+    with lock_path.open("a", encoding="utf-8") as lock_stream:
+        os.chmod(lock_path, 0o600)
+        fcntl.flock(lock_stream, fcntl.LOCK_EX)
+        if tool == "codex":
+            update_codex(config_dir, roots, remove)
+        else:
+            update_claude(user_home, roots, remove)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

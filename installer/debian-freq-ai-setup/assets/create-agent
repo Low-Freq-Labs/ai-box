@@ -1,0 +1,518 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly site_config=/etc/freq-ai-setup/site.conf
+[[ -f $site_config && ! -L $site_config \
+   && $(stat -Lc '%U:%G:%a' "$site_config" 2>/dev/null) == root:root:644 ]] || {
+    printf 'create-agent: safe FREQ-AI-SETUP site config is unavailable\n' >&2
+    exit 2
+}
+source "$site_config"
+readonly master_user=${FREQ_MASTER_USER:?missing FREQ_MASTER_USER}
+readonly master_group=${FREQ_MASTER_GROUP:?missing FREQ_MASTER_GROUP}
+readonly master_home=${FREQ_MASTER_HOME:?missing FREQ_MASTER_HOME}
+readonly operator_name=${FREQ_OPERATOR_NAME:-Operator}
+readonly site_host=${FREQ_HOST:?missing FREQ_HOST}
+readonly fleet_key=/etc/freq-ai-setup/agent-fleet-key.pub
+readonly trust_helper=/usr/local/libexec/freq-ai-setup/agent-trust-current
+readonly tmux_template=/usr/local/share/freq-ai-setup/tmux.conf.template
+readonly lifecycle_template=/usr/local/share/freq-ai-setup/agent-lifecycle.template
+readonly claude_statusline=/usr/local/share/freq-ai-setup/claude-statusline
+readonly installed_skill_root=/opt/freq-agents/skills
+readonly board_behavior_root=/opt/freq-agents/board-behavior
+readonly coms_config=/etc/freq-ai-setup/coms.conf
+readonly board_config=/etc/freq-ai-setup/board.conf
+readonly -a coms_skills=(dev-msg dev-msg-status dev-inbox dev-read dev-drain agent-team)
+readonly -a board_skills=(
+    project-archive project-assign project-list project-register
+    project-status task-dependencies task-block task-done task-ready
+    task-register task-status task-transfer project-assess task-update agent-skills
+)
+readonly -a all_skills=("${coms_skills[@]}" "${board_skills[@]}" wrap-up watch-once)
+
+FREQ_COMS_TMUX_DIR=/run/freq-agents/tmux
+FREQ_COMS_ROOT=/var/lib/freq-agents/coms
+if [[ -r $coms_config ]]; then
+    [[ $(stat -Lc '%U:%G:%a' "$coms_config" 2>/dev/null) == root:root:644 ]] || {
+        printf 'create-agent: unsafe communications config: %s\n' "$coms_config" >&2
+        exit 2
+    }
+    source "$coms_config"
+fi
+readonly tmux_dir=${FREQ_COMS_TMUX_DIR:-/run/freq-agents/tmux}
+readonly coms_root=${FREQ_COMS_ROOT:-/var/lib/freq-agents/coms}
+
+FREQ_BOARD_ROOT=/var/lib/freq-agents/board
+if [[ -r $board_config ]]; then
+    [[ $(stat -Lc '%U:%G:%a' "$board_config" 2>/dev/null) == root:root:644 ]] || {
+        printf 'create-agent: unsafe board config: %s\n' "$board_config" >&2
+        exit 2
+    }
+    source "$board_config"
+fi
+readonly board_root=${FREQ_BOARD_ROOT:-/var/lib/freq-agents/board}
+
+usage() {
+    cat <<'EOF'
+Usage:
+  create-agent
+  create-agent --dry-run AGENT RUNTIME COLOR
+  create-agent --help
+
+RUNTIME: codex or claude
+COLOR: red, orange, yellow, green, blue, purple, pink, or #RRGGBB
+
+Interactive creation requires sudo.
+EOF
+}
+
+fail() { printf 'create-agent: %s\n' "$*" >&2; exit 2; }
+
+temp_files=()
+agent_created=0
+creation_committed=0
+
+cleanup_create() {
+    local status=$?
+    trap - EXIT HUP INT TERM
+    set +e
+    ((${#temp_files[@]} == 0)) || rm -f -- "${temp_files[@]}"
+    if (( agent_created && ! creation_committed )); then
+        if [[ -f /etc/freq-ai-setup/agents.d/$agent.conf ]]; then
+            /usr/local/libexec/freq-ai-setup/setup-container-tools --remove "$agent" >/dev/null 2>&1 || true
+        fi
+        systemctl disable --now "freq-board-alert@$agent.timer" >/dev/null 2>&1 || true
+        rm -rf -- "/run/freq-agents/board-alert/$agent"
+        for registry in /etc/freq-ai-setup/agents.d/*.conf; do
+            [[ -f $registry && ! -L $registry ]] || continue
+            peer=${registry##*/}
+            peer=${peer%.conf}
+            [[ $peer =~ ^[a-z][a-z0-9-]{0,31}$ && $peer != "$agent" ]] || continue
+            peer_socket="$tmux_dir/agent-$peer"
+            [[ -S $peer_socket && ! -L $peer_socket ]] || continue
+            runuser -u "$peer" -- tmux -S "$peer_socket" server-access -d "$agent" \
+                >/dev/null 2>&1 || true
+        done
+        pkill -KILL -u "$agent" >/dev/null 2>&1 || true
+        rm -f -- \
+            "/etc/freq-ai-setup/identities/$agent.conf" \
+            "/etc/freq-ai-setup/agents.d/$agent.conf"
+        rm -rf -- \
+            "$master_home/agents/$agent" \
+            "/home/freq-agents/staging/$agent" \
+            "$coms_root/$agent"
+        userdel --remove "$agent" >/dev/null 2>&1 || true
+        getent group "$agent" >/dev/null && groupdel "$agent" >/dev/null 2>&1
+        printf 'create-agent: creation failed; partial agent %s was rolled back.\n' \
+            "$agent" >&2
+    fi
+    exit "$status"
+}
+
+validate_name() {
+    [[ $1 =~ ^[a-z][a-z0-9-]{0,31}$ ]] || fail 'agent name must match [a-z][a-z0-9-]{0,31}'
+    case "$1" in root|daemon|nobody|archive|freq-ops|freq-agents|freq-discord|freq-alerts|sonny|"$master_user") fail "reserved account name: $1" ;; esac
+}
+
+select_colour() {
+    case "$1" in
+        red)    rgb='239;68;68';  ansi=203; hex='#EF4444' ;;
+        orange) rgb='251;146;60'; ansi=208; hex='#FB923C' ;;
+        yellow) rgb='251;191;36'; ansi=220; hex='#FBBF24' ;;
+        green)  rgb='34;197;94';  ansi=41;  hex='#22C55E' ;;
+        blue)   rgb='56;189;248'; ansi=45;  hex='#38BDF8' ;;
+        purple) rgb='168;85;247'; ansi=141; hex='#A855F7' ;;
+        pink)   rgb='236;72;153'; ansi=205; hex='#EC4899' ;;
+        *)
+            [[ $1 =~ ^#[[:xdigit:]]{6}$ ]] || fail 'use red, orange, yellow, green, blue, purple, pink, or #RRGGBB'
+            hex=${1^^}
+            local r=$((16#${hex:1:2})) g=$((16#${hex:3:2})) b=$((16#${hex:5:2}))
+            rgb="$r;$g;$b"
+            # Search the fixed xterm palette; colors 0-15 are terminal-defined.
+            local i cr cg cb distance best=200000 levels=(0 95 135 175 215 255)
+            ansi=16
+            for ((i=16; i<256; i++)); do
+                if ((i<232)); then
+                    cr=${levels[(i-16)/36]}
+                    cg=${levels[((i-16)/6)%6]}
+                    cb=${levels[(i-16)%6]}
+                else
+                    cr=$((8+10*(i-232))); cg=$cr; cb=$cr
+                fi
+                distance=$(((r-cr)**2+(g-cg)**2+(b-cb)**2))
+                if ((distance<best)); then best=$distance; ansi=$i; fi
+            done
+            ;;
+    esac
+}
+
+validate_runtime() {
+    case "$1" in codex|claude) ;; *) fail 'runtime must be codex or claude' ;; esac
+}
+
+validate_live_peer_socket() {
+    local peer=$1 peer_socket=$2 attempt metadata
+
+    [[ -S $peer_socket && ! -L $peer_socket ]] || return 0
+    metadata=$(stat -Lc '%U:%G:%a' "$peer_socket" 2>/dev/null || true)
+    # tmux may reapply 0700/0770 when clients attach or its access list changes.
+    # Accept only the expected owner/group with no permissions for other users,
+    # then normalize the socket to the FREQ-AI-SETUP 0660 contract below.
+    case $metadata in
+        "$peer:freq-agents:600"|"$peer:freq-agents:660"|\
+        "$peer:freq-agents:700"|"$peer:freq-agents:770") ;;
+        *) fail "active socket has unexpected ownership or mode: $peer_socket ($metadata)" ;;
+    esac
+    runuser -u "$peer" -- tmux -S "$peer_socket" list-sessions >/dev/null 2>&1 || \
+        fail "active socket is not a working $peer tmux server: $peer_socket"
+
+    for attempt in {1..20}; do
+        runuser -u "$peer" -- chgrp freq-agents "$peer_socket" 2>/dev/null || break
+        runuser -u "$peer" -- chmod 0660 "$peer_socket" 2>/dev/null || break
+        sleep 0.05
+        metadata=$(stat -Lc '%U:%G:%a' "$peer_socket" 2>/dev/null || true)
+        [[ $metadata == "$peer:freq-agents:660" ]] || continue
+        sleep 0.05
+        metadata=$(stat -Lc '%U:%G:%a' "$peer_socket" 2>/dev/null || true)
+        [[ $metadata == "$peer:freq-agents:660" ]] && return 0
+    done
+    fail "active socket did not stabilize at $peer:freq-agents:660: $peer_socket ($metadata)"
+}
+
+dry_run() {
+    local name=$1 runtime=$2 colour=$3
+    validate_name "$name"
+    validate_runtime "$runtime"
+    select_colour "$colour"
+    getent passwd "$name" >/dev/null && fail "account already exists: $name"
+    printf 'DRY_RUN agent=%s runtime=%s color=%s rgb=%s ansi=%s hex=%s\n' \
+        "$name" "$runtime" "$colour" "$rgb" "$ansi" "$hex"
+    printf 'DRY_RUN scripts=/home/%s/agents/%s/%s-{start,connect,stop}\n' \
+        "$master_user" "$name" "$name"
+    printf 'DRY_RUN commands=%s-start,%s-connect,%s-stop\n' "$name" "$name" "$name"
+    printf 'DRY_RUN socket=%s/agent-%s owner=%s group=freq-agents mode=0660\n' \
+        "$tmux_dir" "$name" "$name"
+    printf 'DRY_RUN delivery-pane=session:%s window:agent marker:@freq_delivery_pane=1\n' "$name"
+    printf 'DRY_RUN coms=%s/%s owner=%s group=freq-agents mode=2750\n' \
+        "$coms_root" "$name" "$name"
+    printf 'DRY_RUN inbox=%s/%s/inbox owner=%s group=freq-agents mode=2770\n' \
+        "$coms_root" "$name" "$name"
+    printf 'DRY_RUN read=%s/%s/read owner=%s group=freq-agents mode=2770\n' \
+        "$coms_root" "$name" "$name"
+    case $runtime in
+        codex)
+            printf 'DRY_RUN contract=/home/%s/.codex/AGENTS.md\n' "$name"
+            printf 'DRY_RUN operator_contract=/home/%s/agents/%s/AGENTS.md\n' \
+                "$master_user" "$name"
+            printf 'DRY_RUN skills=/home/%s/.codex/skills/{coms,board}\n' "$name"
+            printf 'DRY_RUN status_line=model,reasoning,context-used,weekly-limit\n'
+            printf 'DRY_RUN model=gpt-6-astra reasoning_effort=medium update_check=false model_nudge=false\n'
+            ;;
+        claude)
+            printf 'DRY_RUN contract=/home/%s/.claude/CLAUDE.md\n' "$name"
+            printf 'DRY_RUN operator_contract=/home/%s/agents/%s/CLAUDE.md\n' \
+                "$master_user" "$name"
+            printf 'DRY_RUN skills=/home/%s/.claude/skills/{coms,board}\n' "$name"
+            printf 'DRY_RUN status_line=model,reasoning,context-used,five-hour-limit\n'
+            ;;
+    esac
+    printf 'DRY_RUN board=%s timer=freq-board-alert@%s.timer\n' "$board_root" "$name"
+}
+
+case "${1:-}" in
+    --help|-h) usage; exit 0 ;;
+    --dry-run)
+        [[ $# -eq 4 ]] || fail 'dry-run requires AGENT RUNTIME COLOR'
+        dry_run "$2" "$3" "$4"
+        exit 0
+        ;;
+    '') ;;
+    *) usage >&2; exit 2 ;;
+esac
+
+if [[ $EUID -ne 0 ]]; then
+    exec sudo -- "$0"
+fi
+[[ -r $fleet_key ]] || fail 'fleet SSH public key is unavailable'
+[[ -x $trust_helper ]] || fail 'folder-trust helper is unavailable'
+[[ -x /usr/local/bin/wrap-up-state ]] || fail 'wrap-up state helper is unavailable'
+[[ -x /usr/local/libexec/freq-ai-setup/render-agent-contract \
+    && -s /usr/local/share/freq-ai-setup/agent-contract.md \
+    && -s $installed_skill_root/watch-once/scripts/watch_once.py ]] || fail 'contract or observer payload is unavailable'
+[[ -x /usr/local/libexec/freq-ai-setup/agent-startup-notify && -s /usr/local/share/freq-ai-setup/agent-startup-message.md ]] || fail 'startup briefing helper or message is unavailable'
+[[ -r $lifecycle_template ]] || fail 'agent lifecycle template is unavailable'
+[[ -x $claude_statusline && ! -L $claude_statusline ]] || \
+    fail 'Claude status-line template is unavailable'
+[[ -r $board_config && ! -L $board_config ]] || \
+    fail 'board setup is unavailable; run setup-board first'
+for behavior in AGENTS.board.md CLAUDE.board.md; do
+    [[ -f $board_behavior_root/$behavior \
+       && ! -L $board_behavior_root/$behavior \
+       && -r $board_behavior_root/$behavior ]] || \
+        fail "board behavior is unavailable: $behavior"
+done
+for skill in "${all_skills[@]}"; do
+    [[ -f $installed_skill_root/$skill/SKILL.md \
+       && ! -L $installed_skill_root/$skill/SKILL.md \
+       && -r $installed_skill_root/$skill/SKILL.md \
+       && -f $installed_skill_root/$skill/agents/openai.yaml \
+       && ! -L $installed_skill_root/$skill/agents/openai.yaml \
+       && -r $installed_skill_root/$skill/agents/openai.yaml ]] || \
+        fail "agent skill is unavailable: $skill"
+done
+[[ $(stat -Lc '%U:%G:%a' "$coms_root" 2>/dev/null) \
+    == root:freq-agents:750 ]] || fail 'shared inbox root is unavailable or unsafe'
+[[ $board_root == /var/lib/freq-agents/board \
+   || $board_root == /var/lib/freq-agents/board/* ]] || \
+    fail 'configured board root is outside the agent boundary'
+[[ $(stat -Lc '%U:%G:%a' "$board_root" 2>/dev/null) \
+    == root:freq-agents:750 ]] || fail 'shared board root is unavailable or unsafe'
+[[ -f /etc/systemd/system/freq-board-alert@.timer \
+   && ! -L /etc/systemd/system/freq-board-alert@.timer ]] || \
+    fail 'board alert timer is unavailable'
+
+read -r -p 'Agent name: ' agent
+read -r -p 'AI runtime [codex/claude]: ' runtime
+read -r -p 'Agent color [red/orange/yellow/green/blue/purple/pink or #RRGGBB]: ' colour
+validate_name "$agent"
+validate_runtime "$runtime"
+select_colour "$colour"
+pretty="${agent^}"
+getent passwd "$agent" >/dev/null && fail "account already exists: $agent"
+getent group "$agent" >/dev/null && fail "group already exists: $agent"
+agent_tools="$master_home/agents/$agent"
+for destination in \
+    "/home/$agent" \
+    "$agent_tools" \
+    "/home/freq-agents/staging/$agent" \
+    "$coms_root/$agent" \
+    "/etc/freq-ai-setup/identities/$agent.conf" \
+    "/etc/freq-ai-setup/agents.d/$agent.conf"; do
+    [[ ! -e $destination && ! -L $destination ]] || \
+        fail "agent destination already exists: $destination"
+done
+for action in start stop connect; do
+    [[ ! -e "$agent_tools/${agent}-${action}" \
+       && ! -L "$agent_tools/${agent}-${action}" ]] || \
+        fail "agent lifecycle path already exists: $agent_tools/${agent}-${action}"
+done
+
+printf '\nAgent: %s\nRuntime: %s\nColor: %s\n' "$agent" "$runtime" "$colour"
+read -r -p 'Create this isolated agent? [y/N]: ' answer
+[[ $answer == y || $answer == Y ]] || { printf 'Cancelled.\n'; exit 1; }
+
+for registry in /etc/freq-ai-setup/agents.d/*.conf; do
+    [[ -f $registry && ! -L $registry ]] || continue
+    peer=${registry##*/}
+    peer=${peer%.conf}
+    [[ $peer =~ ^[a-z][a-z0-9-]{0,31}$ && $peer != "$agent" ]] || continue
+    peer_socket="$tmux_dir/agent-$peer"
+    [[ -S $peer_socket && ! -L $peer_socket ]] || continue
+    validate_live_peer_socket "$peer" "$peer_socket"
+done
+
+trap cleanup_create EXIT
+trap 'exit 130' HUP INT TERM
+exec 9</run/lock/freq-ai-maintenance.lock
+flock -sn 9 || fail 'maintenance is running; try again when it finishes'
+/usr/local/libexec/freq-ai-setup/manage-agent-groups --check-agent-name "$agent"
+useradd --user-group --groups freq-agents --create-home --shell /bin/bash "$agent"
+agent_created=1
+passwd -l "$agent" >/dev/null
+home="/home/$agent"
+chmod 0700 "$home"
+runuser -u "$agent" -- /usr/local/bin/wrap-up-state init
+install -d -o "$agent" -g "$agent" -m 0700 "/home/freq-agents/session-data/$agent/stop-assessments"
+install -d -o "$agent" -g "$agent" -m 0700 "$home/.ssh" "$home/.config" "$home/.config/freq-agent"
+install -o "$agent" -g "$agent" -m 0600 "$fleet_key" "$home/.ssh/authorized_keys"
+install -d -o "$agent" -g freq-agents -m 2750 "/home/freq-agents/staging/$agent"
+setfacl -m u::rwx,u:"$master_user":r-x,g::r-x,m::r-x,o::---,d:u::rwx,d:u:"$master_user":r-x,d:g::r-x,d:m::r-x,d:o::--- \
+    "/home/freq-agents/staging/$agent"
+agent_coms="$coms_root/$agent"
+install -d -o "$agent" -g freq-agents -m 2750 "$agent_coms"
+install -d -o "$agent" -g freq-agents -m 2770 "$agent_coms/inbox" "$agent_coms/read" "$agent_coms/media"
+setfacl -m u::rwx,g::rwx,m::rwx,o::---,d:u::rwx,d:g::rwx,d:m::rwx,d:o::--- \
+    "$agent_coms/inbox" "$agent_coms/read" "$agent_coms/media"
+
+identity_tmp="$(mktemp)"
+registry_tmp="$(mktemp)"
+tmux_tmp="$(mktemp)"
+launcher_tmp="$(mktemp)"
+contract_tmp="$(mktemp)"
+temp_files=(
+    "$identity_tmp" "$registry_tmp" "$tmux_tmp" "$launcher_tmp"
+    "$contract_tmp"
+)
+printf "export FREQ_USER_TRUECOLOR='%s'\nexport FREQ_USER_256='%s'\nexport FREQ_AGENT_RUNTIME='%s'\n" \
+    "$rgb" "$ansi" "$runtime" >"$identity_tmp"
+printf "AGENT='%s'\nRUNTIME='%s'\nCOLOR='%s'\n" "$agent" "$runtime" "$colour" >"$registry_tmp"
+sed -e "s/__NAME__/$(printf '%s' "$agent" | tr '[:lower:]' '[:upper:]')/g" \
+    -e "s/__COLOUR__/$hex/g" -e "s/__HOST__/$site_host/g" "$tmux_template" >"$tmux_tmp"
+install -o root -g root -m 0644 "$identity_tmp" "/etc/freq-ai-setup/identities/$agent.conf"
+install -o root -g root -m 0644 "$registry_tmp" "/etc/freq-ai-setup/agents.d/$agent.conf"
+install -o "$agent" -g "$agent" -m 0644 "$tmux_tmp" "$home/.tmux.conf"
+
+install -d -o "$agent" -g "$agent" -m 0700 "$home/.codex" "$home/.claude"
+case $runtime in
+    codex)
+        runtime_root="$home/.codex/skills"
+        contract_name=AGENTS.md
+        contract_path="$home/.codex/AGENTS.md"
+        behavior_file="$board_behavior_root/AGENTS.board.md"
+        install -d -o "$agent" -g "$agent" -m 0700 "$runtime_root"
+        for skill in "${all_skills[@]}"; do
+            install -d -o "$agent" -g "$agent" -m 0700 \
+                "$runtime_root/$skill" "$runtime_root/$skill/agents"
+            install -o "$agent" -g "$agent" -m 0644 \
+                "$installed_skill_root/$skill/SKILL.md" "$runtime_root/$skill/SKILL.md"
+            install -o "$agent" -g "$agent" -m 0644 \
+                "$installed_skill_root/$skill/agents/openai.yaml" \
+                "$runtime_root/$skill/agents/openai.yaml"
+        done
+        ;;
+    claude)
+        runtime_root="$home/.claude/skills"
+        contract_name=CLAUDE.md
+        contract_path="$home/.claude/CLAUDE.md"
+        behavior_file="$board_behavior_root/CLAUDE.board.md"
+        install -d -o "$agent" -g "$agent" -m 0700 "$runtime_root"
+        for skill in "${all_skills[@]}"; do
+            install -d -o "$agent" -g "$agent" -m 0700 "$runtime_root/$skill"
+            install -o "$agent" -g "$agent" -m 0644 \
+                "$installed_skill_root/$skill/SKILL.md" "$runtime_root/$skill/SKILL.md"
+        done
+        ;;
+esac
+install -d -o "$agent" -g "$agent" -m 0700 "$runtime_root/watch-once/scripts"
+install -o "$agent" -g "$agent" -m 0644 \
+    "$installed_skill_root/watch-once/scripts/watch_once.py" "$runtime_root/watch-once/scripts/watch_once.py"
+/usr/local/libexec/freq-ai-setup/render-agent-contract \
+    --agent "$pretty" --operator "$operator_name" >"$contract_tmp"
+install -o "$agent" -g "$agent" -m 0644 "$contract_tmp" "$contract_path"
+cat >"$home/.codex/config.toml" <<'EOF'
+model = "gpt-6-astra"
+model_reasoning_effort = "medium"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+check_for_update_on_startup = false
+
+[tui]
+status_line = ["model-with-reasoning", "context-used", "weekly-limit"]
+
+[notice]
+hide_rate_limit_model_nudge = true
+EOF
+chown "$agent:$agent" "$home/.codex/config.toml"
+chmod 0600 "$home/.codex/config.toml"
+install -o "$agent" -g "$agent" -m 0700 "$claude_statusline" \
+    "$home/.claude/statusline.sh"
+cat >"$home/.claude/settings.json" <<'EOF'
+{
+  "env": {
+    "DISABLE_AUTOUPDATER": "1"
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh",
+    "padding": 0
+  }
+}
+EOF
+chown "$agent:$agent" "$home/.claude/settings.json"
+chmod 0600 "$home/.claude/settings.json"
+runuser -u "$agent" -- "$trust_helper" codex "$home"
+runuser -u "$agent" -- "$trust_helper" codex /home/freq-agents/projects
+runuser -u "$agent" -- "$trust_helper" claude "$home"
+runuser -u "$agent" -- "$trust_helper" claude /home/freq-agents/projects
+runuser -u "$agent" -- env AGENT_HOME="$home" python3 -c '
+import json, os
+path = os.path.join(os.environ["AGENT_HOME"], ".claude.json")
+with open(path, encoding="utf-8") as stream:
+    data = json.load(stream)
+data["bypassPermissionsModeAccepted"] = True
+with open(path, "w", encoding="utf-8") as stream:
+    json.dump(data, stream, indent=2)
+    stream.write("\n")
+os.chmod(path, 0o600)
+'
+
+if ! grep -Fq '/etc/profile.d/20-freq-ai-setup.sh' "$home/.bashrc"; then
+    printf '\n# NEXUS FREQ-AI-SETUP shell identity\n[[ -r /etc/profile.d/20-freq-ai-setup.sh ]] && source /etc/profile.d/20-freq-ai-setup.sh\n' >>"$home/.bashrc"
+fi
+chown "$agent:$agent" "$home/.bashrc"
+chmod 0644 "$home/.bashrc"
+printf '[[ -r ~/.bashrc ]] && source ~/.bashrc\n' >"$home/.bash_profile"
+chown "$agent:$agent" "$home/.bash_profile"
+chmod 0644 "$home/.bash_profile"
+
+install -d -o "$master_user" -g "$master_group" -m 0755 \
+    "$master_home/agents" "$agent_tools"
+install -o "$master_user" -g "$master_group" -m 0644 \
+    "$contract_tmp" "$agent_tools/$contract_name"
+for action in start stop connect; do
+    sed -e "s/__AGENT__/$agent/g" \
+        -e "s/__PRETTY__/$pretty/g" \
+        -e "s/__RUNTIME__/$runtime/g" \
+        -e "s/__ACTION__/$action/g" \
+        "$lifecycle_template" >"$launcher_tmp"
+    install -o "$master_user" -g "$master_group" -m 0755 "$launcher_tmp" \
+        "$agent_tools/${agent}-${action}"
+done
+
+for registry in /etc/freq-ai-setup/agents.d/*.conf; do
+    [[ -f $registry && ! -L $registry ]] || continue
+    peer=${registry##*/}
+    peer=${peer%.conf}
+    [[ $peer =~ ^[a-z][a-z0-9-]{0,31}$ && $peer != "$agent" ]] || continue
+    peer_socket="$tmux_dir/agent-$peer"
+    [[ -S $peer_socket && ! -L $peer_socket ]] || continue
+    validate_live_peer_socket "$peer" "$peer_socket"
+    runuser -u "$peer" -- tmux -S "$peer_socket" server-access -a "$agent" || \
+        fail "could not grant $agent access to $peer's active tmux socket"
+    runuser -u "$peer" -- tmux -S "$peer_socket" server-access -w "$agent" || \
+        fail "could not grant $agent write access to $peer's active tmux socket"
+    validate_live_peer_socket "$peer" "$peer_socket"
+    runuser -u "$peer" -- tmux -S "$peer_socket" server-access -l | \
+        grep -Fxq "$agent (W)" || \
+        fail "$agent does not have tmux write access to $peer's active socket"
+done
+
+# Prove the developer tools through the same boundary the runtime inherits.
+/usr/local/libexec/freq-ai-setup/setup-container-tools --agent "$agent"
+runuser -u "$agent" -- env FREQ_NO_BANNER=1 \
+    SSH_ORIGINAL_COMMAND='exec /usr/local/bin/wrap-up-state init' \
+    /usr/local/sbin/freq-agent-sandbox || fail 'agent-context wrap-up state access failed'
+runuser -u "$agent" -- env FREQ_NO_BANNER=1 \
+    SSH_ORIGINAL_COMMAND='source /etc/profile.d/30-freq-ai-setup-shared-tools.sh; exec /usr/bin/python3 /usr/local/share/freq-ai-setup/devtools/devtools-accept' \
+    /usr/local/sbin/freq-agent-sandbox || fail 'agent-context developer acceptance failed'
+runuser -u "$agent" -- env FREQ_NO_BANNER=1 \
+    SSH_ORIGINAL_COMMAND='exec /usr/bin/python3 /usr/local/libexec/freq-ai-setup/container-accept' \
+    /usr/local/sbin/freq-agent-sandbox || fail 'agent-context container acceptance failed'
+# Socket remains enabled for first use; tests leave no resident worker.
+systemctl stop "freq-container@$agent.service"
+
+systemctl enable --now "freq-board-alert@$agent.timer"
+systemctl is-active --quiet "freq-board-alert@$agent.timer" || \
+    fail "board alert timer did not start for $agent"
+
+printf 'CREATED agent=%s runtime=%s color=%s home=%s staging=/home/freq-agents/staging/%s\n' \
+    "$agent" "$runtime" "$colour" "$home" "$agent"
+printf 'SCRIPTS /home/%s/agents/%s/%s-{start,connect,stop}\n' \
+    "$master_user" "$agent" "$agent"
+printf 'CONTRACT /home/%s/agents/%s/%s\n' \
+    "$master_user" "$agent" "$contract_name"
+printf 'COMMANDS %s-start %s-connect %s-stop\n' "$agent" "$agent" "$agent"
+printf 'SOCKET %s/agent-%s owner=%s group=freq-agents mode=0660\n' \
+    "$tmux_dir" "$agent" "$agent"
+printf 'DELIVERY_PANE session=%s window=agent pane=0 marker=@freq_delivery_pane=1\n' "$agent"
+printf 'COMS %s/%s owner=%s group=freq-agents mode=2750\n' \
+    "$coms_root" "$agent" "$agent"
+printf 'INBOX %s/%s/inbox owner=%s group=freq-agents mode=2770\n' \
+    "$coms_root" "$agent" "$agent"
+printf 'READ %s/%s/read owner=%s group=freq-agents mode=2770\n' \
+    "$coms_root" "$agent" "$agent"
+printf 'BOARD %s timer=freq-board-alert@%s.timer\n' "$board_root" "$agent"
+creation_committed=1

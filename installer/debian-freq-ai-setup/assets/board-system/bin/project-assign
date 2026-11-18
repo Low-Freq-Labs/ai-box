@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+import fcntl
+import os
+import pwd
+import re
+import stat
+import sys
+from pathlib import Path
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
+from freq_stop_gate import check_locked, GateError, BoardError
+import freq_board_pause as pause
+
+DEFAULT_BOARD_ROOT = Path("/var/lib/freq-agents/board")
+PROJECT_ID_RE = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)*$")
+AGENT_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+
+
+class AssignmentError(Exception):
+    pass
+
+
+def fail(message):
+    raise AssignmentError(message)
+
+
+def usage():
+    print(
+        "Usage:\n"
+        "  project-assign <project-id> active\n"
+        "  project-assign <project-id> inactive\n"
+        "  project-assign <project-id> paused",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
+def board_root():
+    if os.environ.get("FREQ_BOARD_TESTING") == "1":
+        return Path(os.environ.get("FREQ_BOARD_ROOT", DEFAULT_BOARD_ROOT))
+    return DEFAULT_BOARD_ROOT
+
+
+def current_agent():
+    if os.environ.get("FREQ_BOARD_TESTING") == "1" and os.environ.get(
+        "FREQ_BOARD_AGENT"
+    ):
+        agent = os.environ["FREQ_BOARD_AGENT"]
+    else:
+        try:
+            agent = pwd.getpwuid(os.geteuid()).pw_name
+        except KeyError:
+            fail(f"cannot determine agent from Linux uid: {os.geteuid()}")
+    if not AGENT_RE.fullmatch(agent):
+        fail(f"Linux account name is not a valid agent name: {agent}")
+    return agent
+
+
+def project_path(project_id):
+    if not PROJECT_ID_RE.fullmatch(project_id) or len(project_id) > 64:
+        fail(f"invalid project ID: {project_id}")
+    project = board_root() / "projects" / project_id
+    if project.is_symlink() or not project.is_dir():
+        fail(f"project does not exist: {project_id}")
+    active = project / "active"
+    if active.is_symlink() or not active.is_dir():
+        fail(f"project active directory is unavailable: {project_id}")
+    return project, active
+
+
+def assignment_state(path):
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        return "absent"
+    if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+        fail(f"agent assignment path is invalid: {path}")
+    return "active"
+
+
+def run(arguments):
+    if len(arguments) != 2:
+        usage()
+    project_id, action = arguments
+    if action not in ("active", "inactive", "paused"):
+        usage()
+
+    project, active_root = project_path(project_id)
+    agent = current_agent()
+    assignment = active_root / agent
+
+    lock_descriptor = os.open(project, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(lock_descriptor, fcntl.LOCK_EX)
+        state = assignment_state(assignment)
+
+        if action == "active":
+            pause.clear_locked(project, agent)
+            if state == "active":
+                print(
+                    f"ASSIGNMENT: {agent} -> active/{project_id} "
+                    "(already assigned)"
+                )
+                return
+            assignment.mkdir(mode=0o2770)
+            assignment.chmod(0o2770)
+            print(f"ASSIGNMENT: {agent} -> active/{project_id}")
+            return
+
+        if action == "paused":
+            record = pause.create_locked(project, agent)
+            print(f"ASSIGNMENT: {agent} -> paused/{project_id} ({len(record['active_task_ids'])} active tasks retained)")
+            return
+        try:
+            check_locked(project, agent)
+        except (GateError, BoardError, ValueError, KeyError, TypeError) as error:
+            fail(str(error))
+
+        if state == "absent":
+            print(
+                f"ASSIGNMENT: {agent} -> inactive/{project_id} "
+                "(already inactive)"
+            )
+            return
+        try:
+            next(assignment.iterdir())
+        except StopIteration:
+            pass
+        else:
+            record = pause.create_locked(project, agent)
+            print(f"ASSIGNMENT: {agent} -> paused/{project_id} ({len(record['active_task_ids'])} active tasks retained; not inactive)")
+            return
+        pause.clear_locked(project, agent)
+        assignment.rmdir()
+        print(f"ASSIGNMENT: {agent} -> inactive/{project_id}")
+    finally:
+        os.close(lock_descriptor)
+
+
+if __name__ == "__main__":
+    try:
+        run(sys.argv[1:])
+    except AssignmentError as error:
+        print(f"project-assign: ASSIGNMENT FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)
+    except (OSError, ValueError, GateError, BoardError, KeyError, TypeError) as error:
+        print(f"project-assign: ASSIGNMENT FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)

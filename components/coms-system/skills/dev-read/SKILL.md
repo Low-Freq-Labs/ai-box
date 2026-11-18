@@ -21,4 +21,3 @@ Follow these rules:
 - Do not replace this command with `cat`, `mv`, filesystem searches, or manual
   receipt handling.
 - If it fails, report the exact `READ FAILED` message without guessing.
-

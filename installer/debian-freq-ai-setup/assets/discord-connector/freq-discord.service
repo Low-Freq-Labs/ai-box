@@ -1,0 +1,33 @@
+[Unit]
+Description=FREQ Discord communications connector
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=60
+User=freq-discord
+Group=freq-discord
+SupplementaryGroups=freq-agents
+ExecStart=/opt/freq-agents/discord-venv/bin/python /opt/freq-agents/discord-connector/connector.py
+LoadCredential=bot-token:/etc/freq-ai-setup/discord/bot-token
+StateDirectory=freq-discord
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=15
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/freq-agents/coms /var/lib/freq-agents/discord/outbox /run/freq-agents/tmux
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

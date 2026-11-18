@@ -1,0 +1,127 @@
+#!/usr/bin/python3 -I
+"""Install the existing board prerequisite hook without replacing other policy."""
+import copy
+import os
+from pathlib import Path
+import shutil
+import tempfile
+import time
+import tomllib
+
+DIRECTORY = '/usr/local/libexec/freq-ai-setup/codex-hooks'
+COMMAND = DIRECTORY + '/board-stop-hook'
+HOOK = {'type': 'command', 'command': COMMAND, 'timeout': 15,
+        'statusMessage': 'Checking current prerequisite assessment'}
+
+
+def scalar(text, table, key, value):
+    lines = text.splitlines(keepends=True)
+    header = '[' + table + ']'
+    matches = [i for i, line in enumerate(lines) if line.strip() == header]
+    if len(matches) > 1:
+        raise ValueError('duplicate managed policy table')
+    addition = key + ' = ' + value + '\n'
+    if matches:
+        lines.insert(matches[0] + 1, addition)
+        return ''.join(lines)
+    return text.rstrip() + '\n\n' + header + '\n' + addition
+
+
+def merge(text):
+    before = tomllib.loads(text)
+    hooks = before.get('hooks', {})
+    for group in hooks.get('Stop', []):
+        for hook in group.get('hooks', []):
+            if hook.get('command') in (COMMAND, '/usr/local/bin/board-stop-hook'):
+                return text
+    if before.get('features', {}).get('hooks') is False:
+        raise ValueError('existing policy disables hooks; preserved for operator selection')
+    if hooks.get('managed_dir', DIRECTORY) != DIRECTORY:
+        raise ValueError('existing managed hook directory differs; policy preserved')
+    expected = copy.deepcopy(before)
+    expected.setdefault('features', {})['hooks'] = True
+    expected.setdefault('hooks', {})['managed_dir'] = DIRECTORY
+    expected['hooks'].setdefault('Stop', []).append({'hooks': [HOOK]})
+    result = text
+    if 'hooks' not in before.get('features', {}):
+        result = scalar(result, 'features', 'hooks', 'true')
+    if 'managed_dir' not in hooks:
+        result = scalar(result, 'hooks', 'managed_dir', '"' + DIRECTORY + '"')
+    result = result.rstrip() + '''
+
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "/usr/local/libexec/freq-ai-setup/codex-hooks/board-stop-hook"
+timeout = 15
+statusMessage = "Checking current prerequisite assessment"
+'''
+    if tomllib.loads(result) != expected:
+        raise ValueError('unsupported policy layout; original preserved')
+    return result
+
+
+def safe_directory(path):
+    if path.is_symlink() or path.resolve() != path:
+        raise ValueError('linked managed directory refused')
+    if not path.exists():
+        path.mkdir(mode=0o755)
+    st = path.stat()
+    if st.st_uid or st.st_mode & 0o022 or not path.is_dir():
+        raise ValueError('unsafe managed directory')
+
+
+def write(path, data, mode):
+    fd, temporary = tempfile.mkstemp(prefix='.' + path.name + '.', dir=path.parent)
+    try:
+        os.fchmod(fd, mode)
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def main():
+    if os.geteuid():
+        raise ValueError('managed hook installation requires root')
+    root = Path('/etc/codex')
+    safe_directory(root)
+    config = root / 'requirements.toml'
+    if config.is_symlink():
+        raise ValueError('linked requirements file refused')
+    original = b''
+    if config.exists():
+        st = config.stat()
+        if not config.is_file() or st.st_uid or st.st_mode & 0o022 or st.st_size > 65536:
+            raise ValueError('unsafe requirements file')
+        original = config.read_bytes()
+    result = merge(original.decode()).encode()
+    if result == original:
+        print('STOP_GUARD_POLICY_PRESERVED')
+        return
+    directory = Path(DIRECTORY)
+    safe_directory(directory)
+    wrapper = directory / 'board-stop-hook'
+    if wrapper.exists() or wrapper.is_symlink():
+        st = wrapper.lstat()
+        if wrapper.is_symlink() or not wrapper.is_file() or st.st_uid or st.st_mode & 0o022:
+            raise ValueError('unsafe existing hook wrapper')
+    if original:
+        backup = Path('/var/backups/freq-stop-guard')
+        safe_directory(backup)
+        saved = backup / (str(time.time_ns()) + '.requirements.toml')
+        shutil.copy2(config, saved)
+        saved.chmod(0o600)
+    write(wrapper, b'#!/bin/sh\nexec /usr/local/bin/board-stop-hook "$@"\n', 0o755)
+    write(config, result, 0o644)
+    print('STOP_GUARD_INSTALLED session_reload=owner_managed')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError) as error:
+        raise SystemExit('configure-stop-guard: ' + str(error))

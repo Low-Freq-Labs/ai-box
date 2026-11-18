@@ -1,0 +1,62 @@
+[Unit]
+Description=FREQ isolated rootless container worker for %i
+Requires=freq-container@%i.socket
+After=freq-container@%i.socket
+
+[Service]
+Type=exec
+User=%i
+Group=%i
+SupplementaryGroups=freq-agents
+ExecStart=/usr/bin/catatonit -- /usr/bin/python3 /usr/local/libexec/freq-ai-setup/container-worker
+Environment=FREQ_CONTAINER_WORKER=1
+Environment=HOME=/home/%i XDG_RUNTIME_DIR=/run/freq-container-state/%i
+RuntimeDirectory=freq-container-state/%i
+RuntimeDirectoryMode=0700
+WorkingDirectory=/home/%i
+UMask=0077
+PrivatePIDs=yes
+PrivateIPC=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectHome=tmpfs
+ProtectSystem=strict
+TemporaryFileSystem=/run /var/lib /mnt /media
+BindPaths=/home/%i /home/freq-agents/projects /run/freq-containers/%i /run/freq-container-state/%i
+BindPaths=/dev/net/tun
+DeviceAllow=/dev/net/tun rw
+BindReadOnlyPaths=/home/freq-agents/staging /var/lib/dpkg
+BindReadOnlyPaths=/run/lock/freq-ai-maintenance.lock
+BindReadOnlyPaths=/usr/local/libexec/freq-ai-setup/container-uidmap/newuidmap:/usr/bin/newuidmap
+BindReadOnlyPaths=/usr/local/libexec/freq-ai-setup/container-uidmap/newgidmap:/usr/bin/newgidmap
+BindPaths=/home/freq-agents/staging/%i
+InaccessiblePaths=-/etc/freq-ai-setup/discord -/etc/shadow -/etc/gshadow -/etc/ssh/ssh_host_ed25519_key -/etc/ssh/ssh_host_rsa_key
+# Masked proc submounts prohibit rootless OCI proc mounts. The private PID
+# namespace hides host processes; host capabilities remain unavailable.
+ProtectKernelTunables=no
+ProtectKernelModules=yes
+ProtectKernelLogs=no
+ReadOnlyPaths=/sys
+InaccessiblePaths=-/sys/kernel/debug -/sys/kernel/tracing -/sys/firmware -/sys/fs/bpf
+ProtectControlGroups=yes
+ProtectClock=yes
+# ProtectHostname adds proc submounts that prevent rootless OCI proc mounts.
+# No process has CAP_SYS_ADMIN in the host user namespace.
+ProtectHostname=no
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID
+AmbientCapabilities=
+NoNewPrivileges=no
+RestrictRealtime=yes
+LockPersonality=yes
+# Private IPC/dev namespaces clean up with the service; do not remove IPC
+# belonging to the same agent's separate shell/browser sessions.
+RemoveIPC=no
+TasksMax=2048
+MemoryMax=8G
+CPUQuota=400%
+LimitNOFILE=65536
+KillMode=control-group
+TimeoutStopSec=20
+# catatonit can report forwarded SIGTERM as exit 128+15 on an operator stop.
+SuccessExitStatus=143
+Restart=no

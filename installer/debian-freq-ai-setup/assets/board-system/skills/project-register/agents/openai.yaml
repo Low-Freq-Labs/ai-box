@@ -1,0 +1,4 @@
+interface:
+  display_name: "Register Board Project"
+  short_description: "Create one project and its board structure"
+  default_prompt: "Use $project-register to create the board project I explicitly requested, after checking for an existing match."

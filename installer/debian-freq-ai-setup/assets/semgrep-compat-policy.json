@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "semgrep_version": "1.182.1",
+  "scope": "Locally qualified dependency packaging; vendor scanner code is unchanged. This is not upstream support or an advisory suppression.",
+  "requirements": {
+    "mcp": {
+      "upstream": "mcp==1.29.0",
+      "selected": "1.30.0"
+    },
+    "opentelemetry-api": {
+      "upstream": "opentelemetry-api~=1.37.0",
+      "selected": "1.45.1"
+    },
+    "opentelemetry-sdk": {
+      "upstream": "opentelemetry-sdk~=1.37.0",
+      "selected": "1.45.1"
+    },
+    "opentelemetry-exporter-otlp-proto-http": {
+      "upstream": "opentelemetry-exporter-otlp-proto-http~=1.37.0",
+      "selected": "1.45.1"
+    },
+    "opentelemetry-instrumentation-requests": {
+      "upstream": "opentelemetry-instrumentation-requests~=0.58b0",
+      "selected": "0.66b1"
+    },
+    "opentelemetry-instrumentation-threading": {
+      "upstream": "opentelemetry-instrumentation-threading~=0.58b0",
+      "selected": "0.66b1"
+    }
+  }
+}

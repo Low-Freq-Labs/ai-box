@@ -1,0 +1,115 @@
+#!/usr/bin/python3
+"""Wait briefly for a fresh runtime's input prompt, then use normal coms once."""
+import os
+from pathlib import Path
+import stat
+import re
+import subprocess
+import sys
+import time
+
+STATE_ROOT = Path('/home/freq-agents/session-data')
+
+
+def has_session_state(agent):
+    """Only current saved records count, never init directories or archives."""
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    fd = None
+    try:
+        fd = os.open(STATE_ROOT, flags)
+        for name in (agent, 'session-state'):
+            child = os.open(name, flags, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        names = sorted(name for name in os.listdir(fd)
+                       if re.fullmatch(r'session-state-[0-9TZ.]+\.md', name))
+        if not names:
+            return False
+        record = os.open(names[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+        try:
+            info = os.fstat(record)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 1024 * 1024:
+                raise ValueError('invalid current session-state file')
+            with os.fdopen(record, 'rb', closefd=False) as stream:
+                data = stream.read(1024 * 1024 + 1)
+            if not data.strip() or b'\0' in data or len(data) > 1024 * 1024:
+                raise ValueError('invalid current session-state content')
+            data.decode('utf-8')
+            return True
+        finally:
+            os.close(record)
+    except FileNotFoundError:
+        return False
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def ready(runtime, screen):
+    # Fail closed on onboarding. These are input-prompt adapters, not evidence
+    # that the model has read the message or sent its reply.
+    marker = '›' if runtime == 'codex' else '❯'
+
+    def input_line(line):
+        text = line.lstrip()
+        return text.startswith(marker) and (len(text) == 1 or text[1].isspace())
+
+    lines = screen.rstrip().splitlines()
+    # Menus share the chat prompt glyph. Never submit their selected action.
+    if re.search(r'(?i)(update available|update now|skip until next version|press enter to continue|model:\s*loading|directory:\s*loading)', screen):
+        return False
+    if any(re.match(r'^\s*[›❯]\s*\d+[.)]\s', line) for line in lines):
+        return False
+    # Prompt suggestions are arbitrary prose, not login/trust dialogs. Ignore
+    # their text while retaining onboarding checks on the rest of the screen.
+    outside_input = '\n'.join(line for line in lines if not input_line(line))
+    if re.search(r'(?i)(sign in|log in|login required|trust this|trust.*folder|select.*login|accept.*terms)', outside_input):
+        return False
+    return any(input_line(line) for line in lines[-12:])
+
+
+def main():
+    if len(sys.argv) != 5 or sys.argv[1] not in ('codex', 'claude'):
+        return 2
+    runtime, agent, socket, dev_msg = sys.argv[1:]
+    if not re.fullmatch(r'[a-z][a-z0-9-]{0,31}', agent):
+        return 2
+    try:
+        if not has_session_state(agent):
+            print('STARTUP_SKIPPED: no saved session-state yet; complete wrap-up before a future startup briefing.')
+            return 0
+    except (OSError, ValueError) as error:
+        print(f'STARTUP_NOT_SENT: current session-state is unreadable or invalid ({type(error).__name__}).', file=sys.stderr)
+        return 1
+    # Leave room for coms delivery inside the Discord control broker's 30s limit.
+    deadline = time.monotonic() + 12
+    while time.monotonic() < deadline:
+        try:
+            result = subprocess.run(['/usr/bin/tmux', '-S', socket, 'capture-pane',
+                                     '-p', '-t', f'{agent}:agent.0'],
+                                    capture_output=True, text=True, timeout=3)
+            if result.returncode:
+                break
+            if ready(runtime, result.stdout):
+                # Never retry delivery: a failure may follow successful storage.
+                delivery = subprocess.run([dev_msg, '--startup', agent], timeout=10,
+                                          capture_output=True, text=True)
+                # Keep internal SENT receipts out of the user-facing start result.
+                # Preserve diagnostics and the original failure status; never resend.
+                if delivery.stderr:
+                    print(delivery.stderr, end='', file=sys.stderr)
+                if delivery.returncode and delivery.stdout:
+                    print(delivery.stdout, end='', file=sys.stderr)
+                return delivery.returncode
+        except (OSError, subprocess.TimeoutExpired) as error:
+            print(f'Startup notification failed: {type(error).__name__}', file=sys.stderr)
+            return 1
+        time.sleep(0.25)
+    print('STARTUP_NOT_SENT: no ready input prompt was recognized within 12 seconds. '
+          'Connect to inspect the runtime; it may still be loading or need login/trust setup. '
+          'Stop/start when safe. No automatic resend.', file=sys.stderr)
+    return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

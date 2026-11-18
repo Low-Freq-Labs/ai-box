@@ -1,0 +1,278 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly config_root=/etc/freq-ai-setup
+readonly site_config=$config_root/site.conf
+[[ -f $site_config && ! -L $site_config \
+   && $(stat -Lc '%U:%G:%a' "$site_config" 2>/dev/null) == root:root:644 ]] || {
+    printf 'delete-agent: safe FREQ-AI-SETUP site config is unavailable\n' >&2
+    exit 2
+}
+source "$site_config"
+readonly master_user=${FREQ_MASTER_USER:?missing FREQ_MASTER_USER}
+readonly master_group=${FREQ_MASTER_GROUP:?missing FREQ_MASTER_GROUP}
+readonly master_home=${FREQ_MASTER_HOME:?missing FREQ_MASTER_HOME}
+readonly coms_config=$config_root/coms.conf
+interactive_mode=0
+
+FREQ_COMS_TMUX_DIR=/run/freq-agents/tmux
+FREQ_COMS_ROOT=/var/lib/freq-agents/coms
+if [[ -r $coms_config ]]; then
+    [[ $(stat -Lc '%U:%G:%a' "$coms_config" 2>/dev/null) == root:root:644 ]] || {
+        printf 'delete-agent: unsafe communications config: %s\n' "$coms_config" >&2
+        exit 2
+    }
+    source "$coms_config"
+fi
+readonly tmux_dir=${FREQ_COMS_TMUX_DIR:-/run/freq-agents/tmux}
+readonly coms_root=${FREQ_COMS_ROOT:-/var/lib/freq-agents/coms}
+
+usage() {
+    printf '%s\n' 'Usage: delete-agent [--dry-run AGENT...]' \
+        'With no arguments, choose an agent by typing its exact name.' \
+        'Staging is archived. Homes/coms are deleted. Projects and board history stay.'
+}
+
+fail() { printf 'delete-agent: %s\n' "$*" >&2; exit 2; }
+
+validate_name() {
+    [[ $1 =~ ^[a-z][a-z0-9-]{0,31}$ ]] || fail 'agent name must match [a-z][a-z0-9-]{0,31}'
+    case "$1" in root|daemon|nobody|freq-ops|freq-agents|"$master_user") fail "reserved account name: $1" ;; esac
+}
+
+require_root() {
+    if [[ $EUID -ne 0 ]]; then
+        [[ $(id -un) == "$master_user" ]] || fail "only $master_user or root may delete agents"
+        exec sudo -- "$0" "$@"
+    fi
+}
+
+assert_regular() {
+    local path=$1 expected=$2
+    [[ -f $path && ! -L $path ]] || fail "required regular file is missing: $path"
+    [[ $(stat -Lc '%U:%G:%a' "$path") == "$expected" ]] || fail "unsafe file metadata: $path"
+}
+
+assert_directory() {
+    local path=$1 expected=$2
+    [[ -d $path && ! -L $path ]] || fail "required directory is missing: $path"
+    [[ $(stat -Lc '%U:%G:%a' "$path") == "$expected" ]] || fail "unsafe directory metadata: $path"
+}
+
+validate_agent() {
+    local agent=$1 home registry identity declared_agent declared_runtime declared_colour
+    validate_name "$agent"
+    home="/home/$agent"
+    registry="$config_root/agents.d/$agent.conf"
+    identity="$config_root/identities/$agent.conf"
+    getent passwd "$agent" >/dev/null || fail "account does not exist: $agent"
+    [[ $(getent passwd "$agent" | cut -d: -f6-7) == "$home:/bin/bash" ]] || fail "unexpected account home or shell: $agent"
+    id -nG "$agent" | tr ' ' '\n' | grep -Fxq freq-agents || fail "account is not a FREQ-AI-SETUP agent: $agent"
+    assert_directory "$home" "$agent:$agent:700"
+    assert_regular "$registry" root:root:644
+    assert_regular "$identity" root:root:644
+    declared_agent="$(sed -n "s/^AGENT='\([^']*\)'$/\1/p" "$registry")"
+    declared_runtime="$(sed -n "s/^RUNTIME='\([^']*\)'$/\1/p" "$registry")"
+    declared_colour="$(sed -n "s/^COLOR='\([^']*\)'$/\1/p" "$registry")"
+    [[ $declared_agent == "$agent" ]] || fail "registry identity mismatch: $registry"
+    case "$declared_runtime" in codex|claude) ;; *) fail "invalid runtime registry: $registry" ;; esac
+    case "$declared_colour" in
+        red|orange|yellow|green|blue|purple|pink) ;;
+        *) [[ $declared_colour =~ ^#[[:xdigit:]]{6}$ ]] || fail "invalid colour registry: $registry" ;;
+    esac
+    assert_directory "$master_home/agents/$agent" "$master_user:$master_group:755"
+    assert_directory "/home/freq-agents/staging/$agent" "$agent:freq-agents:2750"
+    assert_directory "$coms_root/$agent" "$agent:freq-agents:2750"
+    for action in start connect stop; do
+        local command_path="$master_home/agents/$agent/$agent-$action"
+        [[ -f $command_path && ! -L $command_path ]] || fail "unsafe lifecycle command: $command_path"
+        [[ $(stat -Lc '%U:%G:%a' "$command_path") == "$master_user:$master_user:755" ]] \
+            || fail "unsafe lifecycle command ownership: $command_path"
+    done
+}
+
+show_targets() {
+    local agent=$1 socket="$tmux_dir/agent-$1"
+    printf 'TARGET account=%s home=/home/%s\n' "$agent" "$agent"
+    printf 'TARGET staging=/home/freq-agents/staging/%s\n' "$agent"
+    printf 'TARGET coms=%s/%s\n' "$coms_root" "$agent"
+    printf 'TARGET registry=%s/agents.d/%s.conf\n' "$config_root" "$agent"
+    printf 'TARGET identity=%s/identities/%s.conf\n' "$config_root" "$agent"
+    printf 'TARGET launchers=/home/%s/agents/%s/%s-{start,connect,stop}\n' \
+        "$master_user" "$agent" "$agent"
+    if [[ -S $socket && ! -L $socket ]]; then
+        printf 'TARGET live_socket=%s owner=%s\n' "$socket" "$(stat -Lc '%U:%G:%a' "$socket")"
+    else
+        printf 'TARGET live_socket=none\n'
+    fi
+    process_count="$( { pgrep -u "$agent" 2>/dev/null || true; } | wc -l)"
+    printf 'TARGET processes=%s\n' "$process_count"
+}
+
+remove_tree() {
+    local path=$1 expected_parent=$2 resolved_parent
+    [[ -e $path || -L $path ]] || return 0
+    [[ -d $path && ! -L $path ]] || fail "refusing non-directory tree target: $path"
+    resolved_parent="$(realpath -e -- "$(dirname -- "$path")")"
+    [[ $resolved_parent == "$expected_parent" ]] || fail "tree target escaped expected parent: $path"
+    find "$path" -xdev -depth -delete
+}
+
+remove_file() {
+    local path=$1 expected_parent=$2 resolved_parent
+    [[ -e $path || -L $path ]] || return 0
+    resolved_parent="$(realpath -e -- "$(dirname -- "$path")")"
+    [[ $resolved_parent == "$expected_parent" ]] || fail "file target escaped expected parent: $path"
+    rm -f -- "$path"
+}
+
+stop_agent() {
+    local agent=$1 socket="$tmux_dir/agent-$1"
+    if [[ -f /etc/tmpfiles.d/freq-container-$agent.conf ]]; then
+        /usr/local/libexec/freq-ai-setup/setup-container-tools --remove "$agent"
+    fi
+    if [[ -S $socket && ! -L $socket ]]; then
+        case "$(stat -Lc '%U:%G:%a' "$socket")" in
+            "$agent:freq-agents:660"|"$agent:freq-agents:770") ;;
+            *) fail "unsafe socket metadata: $socket" ;;
+        esac
+        runuser -u "$agent" -- tmux -S "$socket" kill-server 2>/dev/null || true
+    fi
+    loginctl terminate-user "$agent" 2>/dev/null || true
+    pkill -TERM -u "$agent" 2>/dev/null || true
+    for _ in {1..20}; do
+        pgrep -u "$agent" >/dev/null 2>&1 || break
+        sleep 0.1
+    done
+    pkill -KILL -u "$agent" 2>/dev/null || true
+    pgrep -u "$agent" >/dev/null 2>&1 && fail "could not stop all processes for $agent"
+    if [[ -e $socket || -S $socket ]]; then
+        [[ ! -L $socket ]] || fail "refusing symlink socket target: $socket"
+        rm -f -- "$socket"
+    fi
+}
+
+remove_peer_access() {
+    local agent=$1 registry peer peer_socket listing
+    for registry in "$config_root"/agents.d/*.conf; do
+        [[ -f $registry && ! -L $registry ]] || continue
+        peer=${registry##*/}; peer=${peer%.conf}
+        [[ $peer != "$agent" ]] || continue
+        peer_socket="$tmux_dir/agent-$peer"
+        [[ -S $peer_socket && ! -L $peer_socket ]] || continue
+        case "$(stat -Lc '%U:%G:%a' "$peer_socket")" in
+            "$peer:freq-agents:660"|"$peer:freq-agents:770") ;;
+            *) fail "unsafe peer socket: $peer_socket" ;;
+        esac
+        if ! listing="$(runuser -u "$peer" -- tmux -S "$peer_socket" server-access -l 2>/dev/null)"; then
+            continue
+        fi
+        if printf '%s\n' "$listing" | grep -Eq "^${agent} \([RW]\)$"; then
+            runuser -u "$peer" -- tmux -S "$peer_socket" server-access -d "$agent"
+        fi
+    done
+}
+
+delete_one() {
+    local agent=$1
+    validate_agent "$agent"
+    /usr/local/libexec/freq-ai-setup/retire-agent-data --check "$agent"
+    systemctl disable --now "freq-board-alert@$agent.timer" >/dev/null 2>&1 || true
+    systemctl stop "freq-board-alert@$agent.service" >/dev/null 2>&1 || true
+    remove_peer_access "$agent"
+    stop_agent "$agent"
+    # Stop new peer assignments/delivery while retiring the account's board lane.
+    chmod 000 "$coms_root/$agent"
+    if ! /usr/local/libexec/freq-ai-setup/retire-agent-data "$agent"; then
+        chmod 2750 "$coms_root/$agent"
+        fail "retirement incomplete for $agent; account retained"
+    fi
+    if ! userdel --remove "$agent"; then
+        chmod 2750 "$coms_root/$agent"
+        fail "account removal failed for $agent; staging remains archived"
+    fi
+    getent group "$agent" >/dev/null && groupdel "$agent"
+    /usr/local/libexec/freq-ai-setup/manage-agent-groups --forget-agent "$agent"
+    remove_tree "/home/freq-agents/staging/$agent" /home/freq-agents/staging
+    remove_tree "$coms_root/$agent" "$coms_root"
+    remove_tree "$master_home/agents/$agent" "$master_home/agents"
+    remove_file "$tmux_dir/.dev-msg-$agent.lock" "$tmux_dir"
+    remove_file "$config_root/agents.d/$agent.conf" "$config_root/agents.d"
+    remove_file "$config_root/identities/$agent.conf" "$config_root/identities"
+    remove_tree "/run/freq-agents/board-alert/$agent" /run/freq-agents/board-alert
+    systemctl reset-failed "freq-board-alert@$agent.service" \
+        "freq-board-alert@$agent.timer" >/dev/null 2>&1 || true
+    [[ ! -e /home/$agent ]] || fail "home remains after account deletion: /home/$agent"
+    getent passwd "$agent" >/dev/null && fail "account remains after deletion: $agent"
+    (( interactive_mode )) || printf 'DELETED agent=%s staging=archived\n' "$agent"
+}
+
+interactive_delete() {
+    local registry agent runtime state socket selected found
+    local -a agents=()
+    require_root
+    exec 9</run/lock/freq-ai-maintenance.lock
+    flock -xn 9 || fail 'another maintenance operation is running'
+
+    for registry in "$config_root"/agents.d/*.conf; do
+        [[ -f $registry && ! -L $registry ]] || continue
+        agent=${registry##*/}
+        agent=${agent%.conf}
+        validate_agent "$agent"
+        agents+=("$agent")
+    done
+    ((${#agents[@]} > 0)) || fail 'there are no registered agents to delete'
+
+    printf 'Agents:\n'
+    for agent in "${agents[@]}"; do
+        registry="$config_root/agents.d/$agent.conf"
+        runtime="$(sed -n "s/^RUNTIME='\([^']*\)'$/\1/p" "$registry")"
+        socket="$tmux_dir/agent-$agent"
+        state=stopped
+        if [[ -S $socket && ! -L $socket ]] \
+           && runuser -u "$agent" -- tmux -S "$socket" list-sessions >/dev/null 2>&1; then
+            state=running
+        fi
+        printf '  %s (%s, %s)\n' "$agent" "$runtime" "$state"
+    done
+
+    printf '\nThe selected agent will be stopped and permanently removed.\n'
+    printf 'Staging is archived; projects and board history stay. Homes and coms are deleted with no backup.\n'
+    read -r -p 'Agent to delete (blank cancels): ' selected
+    if [[ -z $selected ]]; then
+        printf 'Cancelled.\n'
+        return 1
+    fi
+    found=0
+    for agent in "${agents[@]}"; do
+        [[ $agent == "$selected" ]] && found=1
+    done
+    (( found )) || fail "not a registered agent: $selected"
+
+    interactive_mode=1
+    delete_one "$selected"
+    printf 'Deleted %s permanently.\n' "$selected"
+}
+
+# level-set reuses these checked deletion functions, not the old machine reset.
+[[ ${BASH_SOURCE[0]} == "$0" ]] || return 0
+
+if [[ $# -eq 0 ]]; then
+    interactive_delete
+    exit $?
+fi
+
+case "${1:-}" in
+    --dry-run)
+        shift
+        [[ $# -gt 0 ]] || { usage >&2; exit 2; }
+        require_root --dry-run "$@"
+        for agent in "$@"; do
+            validate_agent "$agent"
+            show_targets "$agent"
+            /usr/local/libexec/freq-ai-setup/retire-agent-data --check "$agent"
+        done
+        ;;
+    --help|-h) usage ;;
+    *) usage >&2; exit 2 ;;
+esac

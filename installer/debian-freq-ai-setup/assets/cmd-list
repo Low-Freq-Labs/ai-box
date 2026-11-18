@@ -1,0 +1,63 @@
+# Update the shared host and tools (interactive; never reboots automatically)
+full-update
+update-agent
+update-agent --help
+
+# Configure or rotate shared GitHub identity and token
+update-shared-git
+update-discord
+
+# Add an SSH public key for the master user; preserve existing keys
+update-ssh-key
+
+# Check shared tool update candidates without applying them
+full-update --check
+
+# Create or permanently remove one agent
+create-agent
+delete-agent
+
+# Operator-only Discord groups (agent-team remains the agents' roster command)
+agent-groups create pve-freq
+agent-groups show
+agent-groups <agent> pve-freq
+agent-groups <agent> remove pve-freq
+
+# Grant/revoke bounded ai-box management; agent homes stay private
+agent-admin show
+agent-admin grant jarvis diagnostics smb network services
+agent-admin revoke jarvis all
+
+# All agents: own service-alert integrations and granted host operations
+service-alerts --help
+host-admin --help
+host-admin packages --help
+
+# Board dependencies and delivery receipts (observations do not change task ownership)
+task-dependencies --help
+dev-msg-status --help
+board-admin --help
+coms-admin --help
+storage-budget --help
+storage-run --help
+
+# Optional test endpoint; operator enrollment required before use
+remote-test --help
+
+# Remove all agents; preserve projects/board and archive staging
+level-set
+
+# Preview agent-only reset
+level-set --dry-run
+
+# Agent lifecycle
+<agent>-start
+<agent>-connect
+<agent>-stop
+
+# Install an additional system or shared npm tool
+sudo apt install <package>
+sudo npm install -g <package>
+
+# setup-discord appears in ~/tools only until Discord is configured.
+# Installer and repair helpers live in /usr/local/libexec/freq-ai-setup/.

@@ -1,0 +1,12 @@
+[Unit]
+Description=Restore confirmed FREQ managed additional routes
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /usr/local/libexec/freq-ai-setup/host-admin/broker.py --restore-routes
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

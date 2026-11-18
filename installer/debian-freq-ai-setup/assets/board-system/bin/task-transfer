@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+import sys
+from pathlib import Path
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from freq_board import (
+    AGENT_RE,
+    BoardError,
+    append_history,
+    append_task_note,
+    current_agent,
+    ensure_assignment,
+    find_owned_project,
+    task_project_option,
+    history_entry,
+    locate,
+    locked,
+    move,
+    read_text,
+    require_owner,
+    require_team_agent,
+    rewrite,
+    validate_task_name,
+    validate_note,
+)
+from freq_board_alert import BoardAlertError, send_alert, store_handoff_note
+from freq_board_transaction import transition, arguments as operation_arguments, notification_result
+
+
+def usage():
+    print("Optional prefix: --project <project-id> (select a project explicitly)", file=sys.stderr)
+    print(
+        "Usage: task-transfer <task-name> <agent> <handoff-note>",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
+def run(arguments):
+    arguments = operation_arguments(arguments, 'task-transfer')
+    if arguments is None:
+        return
+    project_id, arguments = task_project_option(arguments)
+    if len(arguments) != 3:
+        usage()
+    task_name, recipient, handoff_note = arguments
+    validate_task_name(task_name)
+    if not AGENT_RE.fullmatch(recipient):
+        raise BoardError(f"invalid recipient agent: {recipient}")
+    validate_note(handoff_note, "handoff note")
+    sender = current_agent()
+    if recipient == sender:
+        raise BoardError(f"task is already owned by {sender}")
+    project = find_owned_project(sender, task_name, project_id)
+
+    with locked(project):
+        location = locate(project, task_name)
+        require_owner(location, sender)
+        require_team_agent(recipient)
+        try:
+            note_path = store_handoff_note(recipient, sender, handoff_note)
+        except BoardAlertError as error:
+            raise BoardError(str(error)) from error
+
+        try:
+            ensure_assignment(project, recipient)
+            content = append_history(
+                read_text(location["path"]),
+                history_entry(
+                    sender,
+                    "TRANSFER",
+                    f"{sender} -> {recipient} — handoff `{note_path.name}`",
+                ),
+            )
+            content = append_task_note(
+                content,
+                "Transfer handoff",
+                sender,
+                handoff_note,
+                (("Transferred to", recipient), ("Message file", note_path.name)),
+            )
+            payload = (
+                f"BOARD-ALERT: {sender} transferred you a task in {project.name}:\n"
+                f"- {task_name}\n  → dev-read {note_path.name}"
+            )
+            location = transition(project, location, "active", content, recipient,
+                notification={'recipient': recipient, 'payload': payload, 'handoff_file': note_path.name})
+        except Exception:
+            # A prepared transaction can depend on both the assignment directory
+            # and handoff even when publication has not happened yet.
+            raise
+
+        print(
+            f"TRANSFERRED: {task_name} -> {recipient} "
+            f"({project.name}; dev-read {note_path.name})"
+        )
+        payload = (
+            f"BOARD-ALERT: {sender} transferred you a task in {project.name}:\n"
+            f"- {task_name}\n"
+            f"  → dev-read {note_path.name}"
+        )
+        # Commit uncertainty while serialized; recipient I/O must not hold
+        # the project lock. The operation-specific atomic notification record
+        # remains independent of later task revisions and ownership changes.
+        notification_result(project, location, 'UNCERTAIN')
+    try:
+        send_alert(recipient, payload)
+        notification_result(project, location, 'NOTIFIED')
+    except BoardAlertError as error:
+        print(
+            "task-transfer: ALERT FAILED: "
+            f"task remains active/{recipient}; "
+            f"handoff remains inbox/{note_path.name}: {error}",
+            file=sys.stderr,
+        )
+
+
+if __name__ == "__main__":
+    try:
+        run(sys.argv[1:])
+    except BoardError as error:
+        print(f"task-transfer: TRANSFER FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)
+    except (OSError, UnicodeError, ValueError) as error:
+        print(f"task-transfer: TRANSFER FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)

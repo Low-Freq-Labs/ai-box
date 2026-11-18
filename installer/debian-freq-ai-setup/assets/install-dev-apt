@@ -1,0 +1,18 @@
+#!/bin/bash
+# Internal shared APT phase; package names live only in the manifests.
+set -euo pipefail
+[[ $EUID -eq 0 && $# -eq 1 ]] || { printf 'install-dev-apt requires root and a manifest directory\n' >&2; exit 2; }
+manifest_dir=$1
+packages=()
+for manifest in "$manifest_dir/apt-base.txt" "$manifest_dir/apt-browser.txt"; do
+    [[ -f $manifest && ! -L $manifest ]] || { printf 'missing APT manifest: %s\n' "$manifest" >&2; exit 2; }
+    while IFS= read -r line || [[ -n $line ]]; do
+        [[ -n $line && $line != \#* ]] || continue
+        [[ $line =~ ^[a-z0-9][a-z0-9+.-]*$ ]] || { printf 'invalid APT package entry\n' >&2; exit 2; }
+        packages+=("$line")
+    done < "$manifest"
+done
+mapfile -t packages < <(printf '%s\n' "${packages[@]}" | LC_ALL=C sort -u)
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends "${packages[@]}"

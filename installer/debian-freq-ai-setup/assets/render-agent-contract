@@ -1,0 +1,21 @@
+#!/usr/bin/python3 -I
+"""Render the shared concise contract without shell interpolation."""
+import argparse
+from pathlib import Path
+import re
+
+
+def render(template, agent, operator):
+    for value in (agent, operator):
+        if not re.fullmatch(r'[A-Za-z][A-Za-z0-9._ -]{0,63}', value):
+            raise ValueError('invalid display name')
+    return template.replace('@AGENT@', agent).replace('@OPERATOR@', operator)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--agent', required=True)
+    parser.add_argument('--operator', required=True)
+    args = parser.parse_args()
+    template = Path('/usr/local/share/freq-ai-setup/agent-contract.md').read_text(encoding='utf-8')
+    print(render(template, args.agent, args.operator), end='')
