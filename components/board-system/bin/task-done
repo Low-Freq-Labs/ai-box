@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+import sys
+from pathlib import Path
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from freq_board import (
+    BoardError,
+    append_history,
+    append_task_note,
+    current_agent,
+    find_owned_project,
+    task_project_option,
+    history_entry,
+    locate,
+    locked,
+    move,
+    read_text,
+    require_owner,
+    rewrite,
+    validate_note,
+)
+from freq_board_transaction import transition, arguments as operation_arguments
+
+
+def usage():
+    print("Optional prefix: --project <project-id> (select a project explicitly)", file=sys.stderr)
+    print("Usage: task-done <task-name> <completion-note>", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def run(arguments):
+    arguments = operation_arguments(arguments, 'task-done')
+    if arguments is None:
+        return
+    project_id, arguments = task_project_option(arguments)
+    if len(arguments) != 2:
+        usage()
+    task_name, completion_note = arguments
+    validate_note(completion_note, "completion note")
+    agent = current_agent()
+    project = find_owned_project(agent, task_name, project_id)
+    with locked(project):
+        location = locate(project, task_name)
+        require_owner(location, agent)
+        content = append_history(
+            read_text(location["path"]),
+            history_entry(agent, "DONE", "completion evidence recorded"),
+        )
+        content = append_task_note(
+            content, "Completion note", agent, completion_note
+        )
+        location = transition(project, location, "done", content)
+        print(f"DONE: {task_name} -> done ({project.name})")
+
+
+if __name__ == "__main__":
+    try:
+        run(sys.argv[1:])
+    except BoardError as error:
+        print(f"task-done: DONE FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)
+    except (OSError, UnicodeError, ValueError) as error:
+        print(f"task-done: DONE FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)

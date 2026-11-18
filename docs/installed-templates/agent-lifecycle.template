@@ -1,0 +1,184 @@
+#!/bin/bash
+set -u
+
+readonly agent='__AGENT__'
+readonly pretty='__PRETTY__'
+readonly runtime='__RUNTIME__'
+readonly action='__ACTION__'
+readonly coms_config=/etc/freq-ai-setup/coms.conf
+FREQ_COMS_TMUX_DIR=/run/freq-agents/tmux
+if [[ -r $coms_config ]]; then
+    if [[ $(stat -Lc '%U:%G:%a' "$coms_config" 2>/dev/null) != root:root:644 ]]; then
+        printf 'Unsafe communications config: %s\n' "$coms_config" >&2
+        exit 2
+    fi
+    source "$coms_config"
+fi
+readonly socket_dir=${FREQ_COMS_TMUX_DIR:-/run/freq-agents/tmux}
+readonly socket="${socket_dir}/agent-${agent}"
+readonly session="${agent}"
+readonly window='agent'
+readonly home="/home/${agent}"
+readonly site_config=/etc/freq-ai-setup/site.conf
+
+if [[ ! -f $site_config || -L $site_config \
+      || $(stat -Lc '%U:%G:%a' "$site_config" 2>/dev/null) != root:root:644 ]]; then
+    printf 'Safe FREQ-AI-SETUP site config is unavailable.\n' >&2
+    exit 2
+fi
+source "$site_config"
+readonly master_user=${FREQ_MASTER_USER:?missing FREQ_MASTER_USER}
+readonly operator_name=${FREQ_OPERATOR_NAME:-Operator}
+
+if [[ $(id -un) != "$master_user" && $EUID -ne 0 ]]; then
+    printf '%s may only be managed by %s.\n' "$pretty" "$operator_name" >&2
+    exit 2
+fi
+
+getent passwd "$agent" >/dev/null || {
+    printf '%s does not exist.\n' "$pretty" >&2
+    exit 2
+}
+
+as_agent=(sudo -H -u "$agent" --)
+
+is_running() {
+    "${as_agent[@]}" tmux -S "$socket" list-sessions >/dev/null 2>&1
+}
+
+publish_socket() {
+    local attempt metadata
+    for attempt in {1..20}; do
+        "${as_agent[@]}" chgrp freq-agents "$socket" 2>/dev/null || return 1
+        "${as_agent[@]}" chmod 0660 "$socket" 2>/dev/null || return 1
+        sleep 0.05
+        metadata=$("${as_agent[@]}" stat -Lc '%U:%G:%a' "$socket" 2>/dev/null || true)
+        [[ $metadata == "$agent:freq-agents:660" ]] || continue
+        sleep 0.05
+        metadata=$("${as_agent[@]}" stat -Lc '%U:%G:%a' "$socket" 2>/dev/null || true)
+        [[ $metadata == "$agent:freq-agents:660" ]] && return 0
+    done
+    return 1
+}
+
+case "$action" in
+    start)
+        exec 9</run/lock/freq-ai-maintenance.lock
+        flock -sn 9 || { echo 'Maintenance is running; try again when it finishes.' >&2; exit 1; }
+        if is_running; then
+            printf '%s is already running.\n' "$pretty" >&2
+            printf 'Run either %s-connect or %s-stop.\n' "$agent" "$agent" >&2
+            exit 1
+        fi
+
+        for startup_file in /usr/local/libexec/freq-ai-setup/agent-startup-notify /usr/local/share/freq-ai-setup/agent-startup-message.md; do
+            expected=root:root:644
+            [[ $startup_file != */agent-startup-notify ]] || expected=root:root:755
+            if [[ ! -f $startup_file || -L $startup_file || $(stat -c '%U:%G:%a' "$startup_file") != "$expected" ]]; then
+                printf 'Safe startup file unavailable: %s\n' "$startup_file" >&2
+                exit 1
+            fi
+        done
+
+        if ! "${as_agent[@]}" /bin/bash -lc "command -v '$runtime' >/dev/null 2>&1"; then
+            printf '%s cannot start because %s is not installed.\n' "$pretty" "$runtime" >&2
+            exit 1
+        fi
+
+        sudo systemctl start "freq-container@$agent.socket" || exit 1
+
+        runtime_command="$runtime"
+        if [[ $runtime == codex ]]; then
+            # Keep explicit launch settings as well as config.toml defaults.
+            # Escaped quotes survive the outer shell for TOML string parsing.
+            runtime_command='codex --no-daemon --model gpt-6.1-sol -c model_reasoning_effort=\"high\" -c check_for_update_on_startup=false -c notice.hide_rate_limit_model_nudge=true'
+        fi
+        launch="exec tmux -S ${socket} new-session -d -s ${session} -n ${window} -c ${home} /bin/bash -lc 'exec ${runtime_command}'"
+        if ! "${as_agent[@]}" env SSH_ORIGINAL_COMMAND="$launch" /usr/local/sbin/freq-agent-sandbox 9<&-; then
+            printf 'Failed to start %s.\n' "$pretty" >&2
+            exit 1
+        fi
+
+        if ! is_running; then
+            printf '%s exited during startup.\n' "$pretty" >&2
+            exit 1
+        fi
+
+        if ! "${as_agent[@]}" tmux -S "$socket" set-option -p \
+                -t "${session}:${window}.0" @freq_delivery_pane 1; then
+            "${as_agent[@]}" tmux -S "$socket" kill-server >/dev/null 2>&1 || true
+            printf 'Failed to designate the delivery pane for %s.\n' "$pretty" >&2
+            exit 1
+        fi
+        pane_contract=$("${as_agent[@]}" tmux -S "$socket" list-panes -a \
+            -F '#{session_name}|#{window_name}|#{pane_index}|#{pane_dead}|#{@freq_delivery_pane}')
+        if [[ $pane_contract != "${session}|${window}|0|0|1" ]]; then
+            "${as_agent[@]}" tmux -S "$socket" kill-server >/dev/null 2>&1 || true
+            printf 'Agent pane contract failed for %s.\n' "$pretty" >&2
+            exit 1
+        fi
+
+        mapfile -t peers < <(getent group freq-agents | cut -d: -f4 | tr ',' '\n')
+        access_failed=0
+        for peer in "${peers[@]}"; do
+            [[ -n $peer && $peer != "$agent" ]] || continue
+            if ! "${as_agent[@]}" tmux -S "$socket" server-access -a "$peer" \
+               || ! "${as_agent[@]}" tmux -S "$socket" server-access -w "$peer"; then
+                access_failed=1
+                break
+            fi
+        done
+        if (( access_failed )) || ! publish_socket; then
+            "${as_agent[@]}" tmux -S "$socket" kill-server >/dev/null 2>&1 || true
+            printf 'Failed to publish the shared tmux socket for %s.\n' "$pretty" >&2
+            exit 1
+        fi
+
+        access_list=$("${as_agent[@]}" tmux -S "$socket" server-access -l)
+        for peer in "${peers[@]}"; do
+            [[ -n $peer ]] || continue
+            if ! grep -Fxq "$peer (W)" <<<"$access_list"; then
+                "${as_agent[@]}" tmux -S "$socket" kill-server >/dev/null 2>&1 || true
+                printf 'Tmux write access was not established for %s on %s.\n' \
+                    "$peer" "$pretty" >&2
+                exit 1
+            fi
+        done
+
+        if ! "${as_agent[@]}" /usr/local/libexec/freq-ai-setup/agent-startup-notify \
+                "$runtime" "$agent" "$socket" "${FREQ_COMS_BIN_DIR:-/usr/local/bin}/dev-msg"; then
+            printf '%s is running, but startup briefing delivery was not confirmed. Run %s-connect.\n' "$pretty" "$agent" >&2
+            exit 1
+        fi
+        sleep 2
+        if ! is_running; then
+            printf '%s exited during startup.\n' "$pretty" >&2
+            exit 1
+        fi
+        printf 'Started %s.\n' "$pretty"
+        printf 'Delivery pane: %s:%s.0\n' "$session" "$window"
+        printf 'Run %s-connect.\n' "$agent"
+        ;;
+    connect)
+        if ! is_running; then
+            printf '%s is not running.\n' "$pretty" >&2
+            printf 'Run %s-start.\n' "$agent" >&2
+            exit 1
+        fi
+        exec "${as_agent[@]}" tmux -S "$socket" attach-session -t "$session"
+        ;;
+    stop)
+        # Agent stop also stops its running containers, but retains images/volumes.
+        sudo systemctl stop "freq-container@$agent.socket" "freq-container@$agent.service" || exit 1
+        if ! is_running; then
+            printf '%s is stopped, including container jobs.\n' "$pretty"
+            exit 0
+        fi
+        "${as_agent[@]}" tmux -S "$socket" kill-server
+        printf 'Stopped %s.\n' "$pretty"
+        ;;
+    *)
+        printf 'Invalid lifecycle action: %s\n' "$action" >&2
+        exit 2
+        ;;
+esac

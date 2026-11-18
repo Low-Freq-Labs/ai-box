@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+readonly DEFAULT_COMS_ROOT=/var/lib/freq-agents/coms
+COMS_ROOT=$DEFAULT_COMS_ROOT
+if [ "${FREQ_COMS_TESTING:-0}" = 1 ]; then
+    COMS_ROOT=${FREQ_COMS_ROOT:-$COMS_ROOT}
+fi
+
+fail() {
+    printf 'dev-drain: DRAIN FAILED: %s\n' "$1" >&2
+    exit 1
+}
+
+if [ "$#" -ne 0 ]; then
+    printf 'Usage: dev-drain\n' >&2
+    exit 1
+fi
+
+agent=$(/usr/bin/id -un) || fail 'cannot determine agent from the Linux account'
+[[ "$agent" =~ ^[a-z][a-z0-9_-]*$ ]] \
+    || fail "Linux account name is not a valid agent name: $agent"
+
+read_dir="$COMS_ROOT/$agent/read"
+[ -d "$read_dir" ] || fail "read directory is unavailable: $read_dir"
+[ -w "$read_dir" ] || fail "read directory is not writable: $read_dir"
+
+shopt -s nullglob
+paths=("$read_dir"/*.md)
+messages=()
+for path in "${paths[@]}"; do
+    filename=${path##*/}
+    [[ "$filename" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}_[0-9]{9}_[0-9]+_[a-z][a-z0-9_-]*\.md$ ]] \
+        || continue
+    if [ ! -f "$path" ] || [ -L "$path" ]; then
+        fail "generated message entry is not a regular file: $filename"
+    fi
+    messages+=("$path")
+done
+
+for path in "${messages[@]}"; do
+    /usr/bin/unlink -- "$path" \
+        || fail "could not delete read message: ${path##*/}"
+done
+
+count=${#messages[@]}
+if [ "$count" -eq 1 ]; then
+    printf 'Drained 1 read message.\n'
+else
+    printf 'Drained %s read messages.\n' "$count"
+fi

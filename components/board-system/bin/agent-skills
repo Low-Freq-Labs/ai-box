@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+"""Check or refresh this caller's managed skills, preserving private before-images."""
+import argparse
+import datetime
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import stat
+import sys
+import tempfile
+
+SOURCE = Path('/opt/freq-agents/skills')
+FILES = ('SKILL.md', 'agents/openai.yaml')
+LIMIT = 1024 * 1024
+
+
+def directory(path, owner, create=False, allow_group_write=False):
+    if create and not path.exists():
+        path.mkdir(mode=0o700)
+    info = path.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != owner or
+            info.st_mode & (0o002 if allow_group_write else 0o022) or path.resolve() != path):
+        raise ValueError('unsafe directory or ownership: ' + str(path))
+
+
+def read(path, owner, allow_group_write=False):
+    if path.resolve() != path:
+        raise ValueError('symlink/noncanonical skill refused: ' + str(path))
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != owner or
+                before.st_nlink != 1 or before.st_mode & (0o002 if allow_group_write else 0o022) or before.st_size > LIMIT):
+            raise ValueError('unsafe skill metadata: ' + str(path))
+        with os.fdopen(fd, 'rb', closefd=False) as stream:
+            data = stream.read(LIMIT + 1)
+        after = os.fstat(fd)
+        current = path.lstat()
+        keys = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+        if (len(data) > LIMIT or any(getattr(before, k) != getattr(after, k) for k in keys)
+                or (current.st_dev, current.st_ino) != (after.st_dev, after.st_ino)):
+            raise ValueError('skill changed during read: ' + str(path))
+        return data
+    finally:
+        os.close(fd)
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def replace(path, data):
+    fd, temporary = tempfile.mkstemp(prefix='.skill-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(data)
+            stream.flush()
+            os.fchmod(stream.fileno(), 0o644)
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def run(home, uid, source, runtime, names, action):
+    directory(home, uid)
+    directory(source, 0)
+    runtime_root = home / ('.' + runtime)
+    directory(runtime_root, uid)
+    local = runtime_root / 'skills'
+    directory(local, uid)
+    private_tree = any(not p.stat().st_mode & 0o077 for p in (home, runtime_root, local))
+    if not names:
+        names = sorted(p.name for p in source.iterdir()
+                       if (local / p.name).exists() and re.fullmatch(r'[a-z][a-z0-9-]{0,63}', p.name))
+    if len(names) > 100 or len(set(names)) != len(names):
+        raise ValueError('choose at most 100 distinct managed skills')
+    plan = []
+    for name in names:
+        if not re.fullmatch(r'[a-z][a-z0-9-]{0,63}', name):
+            raise ValueError('invalid skill name: ' + name)
+        directory(source / name, 0)
+        if (local / name).exists() or (local / name).is_symlink():
+            directory(local / name, uid, allow_group_write=private_tree)
+        for relative in FILES:
+            src = source / name / relative
+            if not src.exists() and not src.is_symlink():
+                if relative == 'SKILL.md':
+                    raise ValueError('managed skill missing SKILL.md: ' + name)
+                continue
+            if src.parent != source / name:
+                directory(src.parent, 0)
+            data = read(src, 0)
+            dst = local / name / relative
+            old = None
+            mode = None
+            if dst.parent.exists() or dst.parent.is_symlink():
+                directory(dst.parent, uid, allow_group_write=private_tree)
+            if dst.exists() or dst.is_symlink():
+                old = read(dst, uid, allow_group_write=private_tree)
+                mode = stat.S_IMODE(dst.stat().st_mode)
+            plan.append({'skill': name, 'relative': relative, 'src': src, 'dst': dst,
+                         'old': old, 'mode': mode, 'data': data})
+    changed = [p for p in plan if p['old'] != p['data']]
+    report = {'schema': 1, 'runtime': runtime, 'checked_files': len(plan),
+              'changed_files': [{'skill': p['skill'], 'file': p['relative'],
+                                 'before_sha256': sha(p['old']) if p['old'] is not None else None,
+                                 'source_sha256': sha(p['data'])} for p in changed],
+              'action': action, 'applied': False}
+    if action == 'check' or not changed:
+        return report
+    # All source and local inputs were validated before the first write.
+    base = home
+    for part in ('.local', 'state', 'freq-agent-skills'):
+        base = base / part
+        directory(base, uid, create=True)
+    lock = os.open(base / 'sync.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(lock)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_nlink != 1:
+            raise ValueError('unsafe skill sync lock')
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        backup = Path(tempfile.mkdtemp(prefix=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ-'), dir=base))
+        records = []
+        for item in changed:
+            entry = {'destination': str(item['dst']), 'before_sha256': sha(item['old']) if item['old'] is not None else None,
+                     'source_sha256': sha(item['data']), 'before_mode': item['mode']}
+            if item['old'] is not None:
+                prior = backup / item['skill'] / item['relative']
+                prior.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                prior.write_bytes(item['old'])
+                prior.chmod(0o600)
+                with prior.open('rb') as stream:
+                    os.fsync(stream.fileno())
+                entry['backup'] = str(prior)
+            records.append(entry)
+        replace(backup / 'MANIFEST.json', (json.dumps(records, indent=2) + '\n').encode())
+        for parent in sorted({backup, base, *(p.parent for p in backup.rglob('*'))}, key=lambda p: len(p.parts), reverse=True):
+            fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        for item in changed:
+            dst = item['dst']
+            # Refuse concurrent local edits or a changing published source.
+            if read(item['src'], 0) != item['data']:
+                raise ValueError('managed source changed; inspect before retry')
+            if dst.exists() or dst.is_symlink():
+                if item['old'] is None or read(dst, uid, allow_group_write=private_tree) != item['old']:
+                    raise ValueError('local skill changed; inspect before retry: ' + str(dst))
+            elif item['old'] is not None:
+                raise ValueError('local skill disappeared; inspect before retry: ' + str(dst))
+            directory(local / item['skill'], uid, create=True, allow_group_write=private_tree)
+            if dst.parent != local / item['skill']:
+                directory(dst.parent, uid, create=True, allow_group_write=private_tree)
+            replace(dst, item['data'])
+            if read(dst, uid) != item['data']:
+                raise ValueError('skill readback failed: ' + str(dst))
+        report.update(applied=True, backup=str(backup))
+        return report
+    finally:
+        os.close(lock)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('action', choices=('check', 'sync'))
+    parser.add_argument('--runtime', required=True, choices=('codex', 'claude'))
+    parser.add_argument('--skills', nargs='+', help='default: managed skills already present locally')
+    args = parser.parse_args()
+    uid = os.geteuid()
+    if uid == 0:
+        parser.error('run as the owning agent, never root')
+    home = Path(pwd.getpwuid(uid).pw_dir)
+    try:
+        print(json.dumps(run(home, uid, SOURCE, args.runtime, args.skills, args.action), indent=2))
+    except (OSError, ValueError) as exc:
+        print('agent-skills: SYNC FAILED: ' + str(exc) + '; inspect private backups and actual files before retry; partial sync is possible.', file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

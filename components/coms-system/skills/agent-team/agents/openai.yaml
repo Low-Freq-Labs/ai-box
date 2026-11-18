@@ -1,0 +1,4 @@
+interface:
+  display_name: "Discover Agent Team"
+  short_description: "Find team agents and unread inbox counts"
+  default_prompt: "Use $agent-team to discover the current communications roster and show each agent inbox count."

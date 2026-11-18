@@ -1,0 +1,3 @@
+interface:
+  display_name: "Agent Skills"
+  short_description: "Check and refresh my managed skill copies"

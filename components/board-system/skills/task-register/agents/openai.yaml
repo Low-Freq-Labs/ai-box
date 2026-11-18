@@ -1,0 +1,4 @@
+interface:
+  display_name: "Register Board Task"
+  short_description: "Record new ready or blocked project work"
+  default_prompt: "Use $task-register to record this new bug, feature, review, dependency, or planned work item in its project."

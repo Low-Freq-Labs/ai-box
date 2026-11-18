@@ -1,0 +1,4 @@
+interface:
+  display_name: "Transfer Owned Task"
+  short_description: "Hand owned active work to another agent"
+  default_prompt: "Use $task-transfer whenever I must pass an active task I own to another agent with complete durable context."

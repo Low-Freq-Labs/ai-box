@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from freq_board import (
+    BoardError,
+    append_history,
+    build_index,
+    current_agent,
+    history_entry,
+    locate,
+    locked,
+    read_text,
+    rewrite,
+    validate_project,
+)
+
+
+def usage():
+    print(
+        "Usage: project-archive <project-id> <all|task-name|show>",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
+def validated_index(project):
+    index = build_index(project)
+    for task_name, locations in index.items():
+        if len(locations) != 1:
+            raise BoardError(
+                f"task exists in multiple board locations: {task_name}"
+            )
+    return index
+
+
+def archive_content(path, agent, project_id):
+    return append_history(
+        read_text(path),
+        history_entry(agent, "ARCHIVE", f"done -> archive ({project_id})"),
+    )
+
+
+def archive_prepared(project, location, content):
+    target = project / "archive" / location["path"].name
+    if target.exists() or target.is_symlink():
+        raise BoardError(f"archive destination already exists: {target.name[:-3]}")
+    os.replace(location["path"], target)
+    rewrite(target, content)
+    return target
+
+
+def render_archive(project_id, index):
+    names = sorted(
+        (
+            task_name
+            for task_name, locations in index.items()
+            if locations[0]["status"] == "archive"
+        ),
+        key=str.casefold,
+    )
+    print(f"ARCHIVE: {project_id}")
+    if not names:
+        print("└── (empty)")
+        return
+    for position, task_name in enumerate(names):
+        branch = "└──" if position == len(names) - 1 else "├──"
+        print(f"{branch} {task_name}")
+
+
+def run(arguments):
+    if len(arguments) != 2:
+        usage()
+    project_id, selection = arguments
+    project = validate_project(project_id)
+
+    if selection == "show":
+        with locked(project):
+            render_archive(project_id, validated_index(project))
+        return
+
+    agent = current_agent()
+    with locked(project):
+        if selection == "all":
+            index = validated_index(project)
+            prepared = []
+            for task_name in sorted(index, key=str.casefold):
+                location = index[task_name][0]
+                if location["status"] != "done":
+                    continue
+                prepared.append(
+                    (
+                        location,
+                        archive_content(location["path"], agent, project_id),
+                    )
+                )
+            for location, content in prepared:
+                archive_prepared(project, location, content)
+            if not prepared:
+                retained = sum(locations[0]["status"] == "archive" for locations in index.values())
+                noun = "task" if retained == 1 else "tasks"
+                print(f"ARCHIVED: {project_id} nothing moved: done queue already empty; "
+                      f"{retained} {noun} retained in archive")
+                return
+            noun = "task" if len(prepared) == 1 else "tasks"
+            print(
+                f"ARCHIVED: {project_id} done -> archive "
+                f"({len(prepared)} {noun})"
+            )
+            return
+
+        location = locate(project, selection)
+        if location["status"] == "archive":
+            raise BoardError(f"task is already archived: {selection}")
+        if location["status"] != "done":
+            raise BoardError(f"task must be done to archive: {selection}")
+        content = archive_content(location["path"], agent, project_id)
+        target = archive_prepared(project, location, content)
+        print(f"ARCHIVED: {selection} -> {project_id}/archive/{target.name}")
+
+
+if __name__ == "__main__":
+    try:
+        run(sys.argv[1:])
+    except BoardError as error:
+        print(f"project-archive: ARCHIVE FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)
+    except (OSError, UnicodeError) as error:
+        print(f"project-archive: ARCHIVE FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)

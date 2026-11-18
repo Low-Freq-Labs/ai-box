@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+readonly DEFAULT_COMS_ROOT=/var/lib/freq-agents/coms
+COMS_ROOT=$DEFAULT_COMS_ROOT
+if [ "${FREQ_COMS_TESTING:-0}" = 1 ]; then
+    COMS_ROOT=${FREQ_COMS_ROOT:-$COMS_ROOT}
+fi
+
+fail() {
+    printf 'agent-team: TEAM FAILED: %s\n' "$1" >&2
+    exit 1
+}
+
+if [ "$#" -ne 0 ]; then
+    printf 'Usage: agent-team\n' >&2
+    exit 1
+fi
+
+current_agent=$(/usr/bin/id -un) \
+    || fail 'cannot determine agent from the Linux account'
+[[ "$current_agent" =~ ^[a-z][a-z0-9_-]*$ ]] \
+    || fail "Linux account name is not a valid agent name: $current_agent"
+
+if [ ! -d "$COMS_ROOT" ] || [ -L "$COMS_ROOT" ]; then
+    fail "communications root is unavailable: $COMS_ROOT"
+fi
+if [ ! -r "$COMS_ROOT" ] || [ ! -x "$COMS_ROOT" ]; then
+    fail "communications root is not readable: $COMS_ROOT"
+fi
+
+shopt -s nullglob
+records=()
+for agent_dir in "$COMS_ROOT"/*; do
+    if [ ! -d "$agent_dir" ] || [ -L "$agent_dir" ]; then
+        continue
+    fi
+    agent=${agent_dir##*/}
+    [[ "$agent" =~ ^[a-z][a-z0-9_-]*$ ]] || continue
+
+    inbox="$agent_dir/inbox"
+    read_dir="$agent_dir/read"
+    if [ ! -d "$inbox" ] || [ -L "$inbox" ]; then
+        fail "agent inbox is unavailable: $agent"
+    fi
+    if [ ! -d "$read_dir" ] || [ -L "$read_dir" ]; then
+        fail "agent read directory is unavailable: $agent"
+    fi
+    if [ ! -r "$inbox" ] || [ ! -x "$inbox" ]; then
+        fail "agent inbox is not readable: $agent"
+    fi
+
+    count=0
+    message_paths=("$inbox"/*.md)
+    for message_path in "${message_paths[@]}"; do
+        if [ ! -f "$message_path" ] || [ -L "$message_path" ]; then
+            continue
+        fi
+        filename=${message_path##*/}
+        [[ "$filename" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}_[0-9]{9}_[0-9]+_[a-z][a-z0-9_-]*\.md$ ]] \
+            || continue
+        count=$((count + 1))
+    done
+    records+=("$agent|$count")
+done
+
+sorted=()
+if [ "${#records[@]}" -gt 0 ]; then
+    mapfile -t sorted < <(printf '%s\n' "${records[@]}" | LC_ALL=C /usr/bin/sort)
+fi
+
+width=5
+total_unread=0
+for record in "${sorted[@]}"; do
+    agent=${record%%|*}
+    count=${record##*|}
+    if [ "${#agent}" -gt "$width" ]; then
+        width=${#agent}
+    fi
+    total_unread=$((total_unread + count))
+done
+
+printf "%-${width}s    INBOX\n" 'AGENT'
+for record in "${sorted[@]}"; do
+    agent=${record%%|*}
+    count=${record##*|}
+    printf "%-${width}s    %s" "$agent" "$count"
+    if [ "$agent" = "$current_agent" ]; then
+        printf '  (you)'
+    fi
+    printf '\n'
+done
+
+agent_count=${#sorted[@]}
+printf '\n%s agent' "$agent_count"
+[ "$agent_count" -eq 1 ] || printf 's'
+printf ' · %s unread message' "$total_unread"
+[ "$total_unread" -eq 1 ] || printf 's'
+printf '\n'

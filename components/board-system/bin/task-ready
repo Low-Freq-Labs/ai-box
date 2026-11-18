@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+import shlex
+import sys
+from pathlib import Path
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from freq_board import (
+    BoardError,
+    append_history,
+    append_task_note,
+    blocked_reason,
+    current_agent,
+    ensure_assignment,
+    history_entry,
+    locate,
+    locked,
+    move,
+    read_text,
+    require_assignment,
+    require_team_agent,
+    rewrite,
+    set_blocked_reason,
+    validate_project,
+    validate_note,
+)
+from freq_board_alert import BoardAlertError, send_alert
+from freq_board_transaction import transition, arguments as operation_arguments, notification_result
+
+
+def usage():
+    print(
+        "Usage: task-ready <project-id> <task-name> [agent [assignment-note]]",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
+def run(arguments):
+    arguments = operation_arguments(arguments, 'task-ready')
+    if arguments is None:
+        return
+    if len(arguments) not in (2, 3, 4):
+        usage()
+    project_id, task_name = arguments[:2]
+    recipient = arguments[2] if len(arguments) >= 3 else None
+    assignment_note = arguments[3] if len(arguments) == 4 else None
+    project = validate_project(project_id)
+    agent = current_agent()
+
+    with locked(project):
+        location = locate(project, task_name)
+        if location["status"] == "active":
+            raise BoardError(
+                "task is active; only its owner can move it with task-transfer, "
+                "task-block, or task-done. "
+                f"Current owner: {location['owner']}. "
+                f"Inspect: task-status {shlex.quote(project_id)} {shlex.quote(task_name)}"
+            )
+        if location["status"] == "done":
+            raise BoardError("done is terminal; this task cannot return to ready")
+        if location["status"] == "archive":
+            raise BoardError("archive is terminal; this task cannot return to ready")
+        if recipient is not None and recipient != agent and assignment_note is None:
+            raise BoardError("cross-agent assignment note is required")
+        if assignment_note is not None:
+            try:
+                validate_note(assignment_note, "assignment note")
+            except BoardError as error:
+                if recipient is not None and recipient != agent:
+                    raise BoardError("cross-agent assignment note is required") from error
+                raise
+
+        was_blocked = location["status"] == "blocked"
+        if was_blocked:
+            require_assignment(project, agent)
+            blocked_reason(location["path"])
+
+        if recipient is None:
+            if not was_blocked:
+                raise BoardError("task is already ready")
+            content = set_blocked_reason(read_text(location["path"]), None)
+            content = append_history(
+                content, history_entry(agent, "READY", "blocker resolved")
+            )
+            location = transition(project, location, "ready", content)
+            print(f"READY: {task_name} -> ready")
+            return
+
+        require_team_agent(recipient)
+        ensure_assignment(project, recipient)
+        content = read_text(location["path"])
+        if was_blocked:
+            content = set_blocked_reason(content, None)
+        detail = f"{agent} -> {recipient}"
+        if was_blocked:
+            detail += " — blocker resolved"
+        content = append_history(content, history_entry(agent, "ASSIGN", detail))
+        if assignment_note is not None:
+            content = append_task_note(
+                content,
+                "Assignment note",
+                agent,
+                assignment_note,
+                (("Assigned to", recipient),),
+            )
+        payload = (
+            f"BOARD-ALERT: {agent} assigned you a task in {project_id}:\n"
+            f"- {task_name}\n"
+            f"  → task-status {project_id} {shlex.quote(task_name)}"
+        )
+        location = transition(project, location, "active", content, recipient,
+            notification={'recipient': recipient, 'payload': payload} if recipient != agent else None)
+        print(f"ASSIGNED: {task_name} -> active/{recipient}")
+        if recipient == agent:
+            return
+        # Commit uncertainty while serialized; recipient I/O must not hold
+        # the project lock. The operation-specific atomic notification record
+        # remains independent of later task revisions and ownership changes.
+        notification_result(project, location, 'UNCERTAIN')
+    try:
+        send_alert(recipient, payload)
+        notification_result(project, location, 'NOTIFIED')
+    except BoardAlertError as error:
+        print(
+            "task-ready: ALERT FAILED: "
+            f"task remains active/{recipient}: {error}",
+            file=sys.stderr,
+        )
+
+
+if __name__ == "__main__":
+    try:
+        run(sys.argv[1:])
+    except BoardError as error:
+        print(f"task-ready: READY FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)
+    except (OSError, UnicodeError, ValueError) as error:
+        print(f"task-ready: READY FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)

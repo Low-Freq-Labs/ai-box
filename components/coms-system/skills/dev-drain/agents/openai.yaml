@@ -1,0 +1,4 @@
+interface:
+  display_name: "Drain Read Messages"
+  short_description: "Delete read messages only on explicit request"
+  default_prompt: "Use $dev-drain to carry out my explicit request to delete read-message history."

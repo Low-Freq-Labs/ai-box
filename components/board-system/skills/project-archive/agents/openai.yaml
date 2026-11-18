@@ -1,0 +1,4 @@
+interface:
+  display_name: "Archive Completed Tasks"
+  short_description: "Archive done tasks during project wrap-up"
+  default_prompt: "Use $project-archive to move completed tasks out of the live done queue during wrap-up or inspect the project archive."

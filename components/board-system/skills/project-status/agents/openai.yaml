@@ -1,0 +1,4 @@
+interface:
+  display_name: "Show Project Status"
+  short_description: "Show every task grouped by board state"
+  default_prompt: "Use $project-status to show the full task tree for this project."

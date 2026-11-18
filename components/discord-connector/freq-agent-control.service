@@ -1,0 +1,14 @@
+[Unit]
+Description=FREQ registered agent lifecycle worker
+Requires=freq-agent-control.socket
+After=freq-agent-control.socket
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/libexec/freq-agent-control
+User=root
+Group=root
+Environment=PYTHONDONTWRITEBYTECODE=1
+Restart=on-failure
+RestartSec=3
+# Agent tmux servers started by the lifecycle scripts must outlive this worker.
+KillMode=process

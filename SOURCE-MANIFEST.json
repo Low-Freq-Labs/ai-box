@@ -1,0 +1,591 @@
+{
+  "snapshot": "2026-11-18",
+  "scope": "Maintained AI-Box board, communications, Discord bridge and behavior/template source snapshot. No live configuration, credentials, agent homes, board state or message history.",
+  "files": [
+    {
+      "path": "components/board-system/setup-board",
+      "sha256": "5b2e3cbf7029fff38b0312e85b5a5680128f186b1ef5f66be9f7e631f3c4e426",
+      "bytes": 27368
+    },
+    {
+      "path": "components/board-system/bin/agent-skills",
+      "sha256": "159e73a2620313321f7cc8f47bbf5ac1c533a298905802d775b5cde0d892fcea",
+      "bytes": 8717
+    },
+    {
+      "path": "components/board-system/bin/board-alert-watch",
+      "sha256": "dfd08635c114d68a4631522605b07b692b59042073561629f885ca1177f7ad14",
+      "bytes": 10753
+    },
+    {
+      "path": "components/board-system/bin/board-stop-hook",
+      "sha256": "0528b64c811b60ad9680861688b32ea0dc9a5f9200be4641427e92cb3a2ba17a",
+      "bytes": 196
+    },
+    {
+      "path": "components/board-system/bin/project-archive",
+      "sha256": "49fa8bd515f45ecae7b3bc04bce9fd39ffe95ad36dbe1b0c6033aaf3bd45e461",
+      "bytes": 4142
+    },
+    {
+      "path": "components/board-system/bin/project-assess",
+      "sha256": "50fcd55dffa5f1012741c0ef23042864b6320935a2947d987c38998e5b523945",
+      "bytes": 400
+    },
+    {
+      "path": "components/board-system/bin/project-assign",
+      "sha256": "a1f62f7a7105b2fc5beffbe392fc0ed92e49db77fcef84d3470100ce409b7adb",
+      "bytes": 4601
+    },
+    {
+      "path": "components/board-system/bin/project-list",
+      "sha256": "f73673e7080dfacdd2c47d40573dfd53606c024be67fdd3ff4ef9c234dff7db6",
+      "bytes": 4143
+    },
+    {
+      "path": "components/board-system/bin/project-register",
+      "sha256": "8008edad21f59457c0762dc6a48380c4b5989951d8891cf76375e714c1ac603f",
+      "bytes": 2642
+    },
+    {
+      "path": "components/board-system/bin/project-status",
+      "sha256": "5948caf3733c451dec0c077c1d50cea4558693d82a2677576c33050ba626cde6",
+      "bytes": 11935
+    },
+    {
+      "path": "components/board-system/bin/task-block",
+      "sha256": "5b075791d65401e9e0e9ad4df2e1608fb981ad96716922d3bb1b3dbf4094175f",
+      "bytes": 1847
+    },
+    {
+      "path": "components/board-system/bin/task-dependencies",
+      "sha256": "e583d96749581a3b158d05a33e178bb76edf9bdb69bb3d36a44240935f00a93c",
+      "bytes": 826
+    },
+    {
+      "path": "components/board-system/bin/task-done",
+      "sha256": "bf9b8a945f7f7f6ed25c1d537d87c40f34d910bc965d5aa2700135256d4e7c09",
+      "bytes": 1961
+    },
+    {
+      "path": "components/board-system/bin/task-project-migrate",
+      "sha256": "cfe4455316979fef221a5c2a61282d1906d46cd74c2841194d3193bbd375c8cc",
+      "bytes": 249
+    },
+    {
+      "path": "components/board-system/bin/task-ready",
+      "sha256": "9da30fc93772ab415ca09d19863dbd095716db0a4358b61af2759749b94320f5",
+      "bytes": 5144
+    },
+    {
+      "path": "components/board-system/bin/task-register",
+      "sha256": "ba33687e8a92cd3298232456738744049e1f2bea278b540a218b41877ae387a5",
+      "bytes": 3025
+    },
+    {
+      "path": "components/board-system/bin/task-status",
+      "sha256": "5d2cf2add1a9ab8b647f446697122012fd02f55183ad0cfd9d096270ea2c6de4",
+      "bytes": 3551
+    },
+    {
+      "path": "components/board-system/bin/task-transfer",
+      "sha256": "dd6f97d15c26b7dbef4546f649822794099f9ca2076a40a26064ad87dca7a1c7",
+      "bytes": 4411
+    },
+    {
+      "path": "components/board-system/bin/task-update",
+      "sha256": "0bbab139907284f41e7cda81de7736d534c0b4466b0ab15eb589a625ffaba1cf",
+      "bytes": 785
+    },
+    {
+      "path": "components/board-system/lib/freq_board.py",
+      "sha256": "d37a2e493256d6ffa7d8fa02ebc66f36ab68c05e818eea3bd28a2da38ddd37a4",
+      "bytes": 12141
+    },
+    {
+      "path": "components/board-system/lib/freq_board_alert.py",
+      "sha256": "1db24e890d1e31f091042053ae603f2db6e87c8dd1a247647a6fdeca74a726c1",
+      "bytes": 8502
+    },
+    {
+      "path": "components/board-system/lib/freq_board_dependencies.py",
+      "sha256": "32c5863e92917b0494706fc96b92634ec8635874eb0f86424a76198b4f5ea5e6",
+      "bytes": 9876
+    },
+    {
+      "path": "components/board-system/lib/freq_board_inspect.py",
+      "sha256": "32fb411060fc7e384b9489adf2e3821d9574458f755acee3547067bfbac429d1",
+      "bytes": 4043
+    },
+    {
+      "path": "components/board-system/lib/freq_board_pause.py",
+      "sha256": "7bfd0b02c65e00be30f2d225af355895a1a90d789ec971bdee679b151c7f2413",
+      "bytes": 6209
+    },
+    {
+      "path": "components/board-system/lib/freq_board_transaction.py",
+      "sha256": "fa9495cb16568fb2d6b079e54bd083b3bc248f78a3aa19bbd72744e68f7533f1",
+      "bytes": 12299
+    },
+    {
+      "path": "components/board-system/lib/freq_board_update.py",
+      "sha256": "c81c023d931b2974563fd96cd74b124c36d3263ae03e1a01e8ac6023c3827127",
+      "bytes": 5084
+    },
+    {
+      "path": "components/board-system/lib/freq_dependency_model.py",
+      "sha256": "c1aa269c957a9bfe9f1e73de03ab08c2765964467238fae08cf56b6b6e338ade",
+      "bytes": 2888
+    },
+    {
+      "path": "components/board-system/lib/freq_project_migration.py",
+      "sha256": "94706bdfddcf4bc94aff6f092bbe236c26f5838ccf4e20cb76bea8c0322df73b",
+      "bytes": 17082
+    },
+    {
+      "path": "components/board-system/lib/freq_stop_gate.py",
+      "sha256": "efdce48e6d257187903a2e776e01b67d3ab7a38c25355e72e7c38507203cb72d",
+      "bytes": 14710
+    },
+    {
+      "path": "components/board-system/lib/freq_task_identity.py",
+      "sha256": "24b6cfa63e01c2054ee127ae11d1fcd756584c5b13684dd578110239cb04c8d3",
+      "bytes": 2540
+    },
+    {
+      "path": "components/board-system/systemd/freq-board-alert@.service",
+      "sha256": "a8c7ad63a4fed9cf3ab0ed68952c47a5086f7e3f08d6062cc601f91c04847666",
+      "bytes": 276
+    },
+    {
+      "path": "components/board-system/systemd/freq-board-alert@.timer",
+      "sha256": "a688339fbb4ef7ad6e2f08ac5cc9fdb976bcf8e9f9031b2d5e1a624e0664bce2",
+      "bytes": 210
+    },
+    {
+      "path": "components/board-system/tests/test_board_alert_transport.py",
+      "sha256": "3f7e55437b84f69d46279befbf2b653501d6fdb8e303855c56d04960c6b8d4d0",
+      "bytes": 4777
+    },
+    {
+      "path": "components/board-system/tests/test_board_alert_watch.py",
+      "sha256": "1b01a2aa1453259b43b158a600d415a9f3997581c13b0fb7aff8711a1e6a468e",
+      "bytes": 8857
+    },
+    {
+      "path": "components/board-system/tests/test_notification_lock.py",
+      "sha256": "5909fdae6832af47f2f7ac088cdc040f38dff8bc79ff8d6774247d83378f6e2b",
+      "bytes": 9294
+    },
+    {
+      "path": "components/board-system/tests/test_project_archive.py",
+      "sha256": "95176b99f4e20ed1537c9b7d923882deaa2e976022c872e612068f9ac46b52fc",
+      "bytes": 9790
+    },
+    {
+      "path": "components/board-system/tests/test_project_assign.py",
+      "sha256": "796fad9b2b57c6bd0a081a68aa8848fe10c185057062494d1c905239ad3aac7b",
+      "bytes": 6165
+    },
+    {
+      "path": "components/board-system/tests/test_project_list.py",
+      "sha256": "061c24c031ce78a0cdafc46305f631d0ac2251f163835bfd8a67bcab10e215f2",
+      "bytes": 3625
+    },
+    {
+      "path": "components/board-system/tests/test_project_status.py",
+      "sha256": "52c648d839e99276517f8931d2e8bf83e09d48c70e84cab5ad5078b51fba43e0",
+      "bytes": 6406
+    },
+    {
+      "path": "components/board-system/tests/test_register.py",
+      "sha256": "762457c400c15922fcd7027b2a395d6a06382e15ef980f1af178be23f30f0b94",
+      "bytes": 9038
+    },
+    {
+      "path": "components/board-system/tests/test_task_block_done.py",
+      "sha256": "1c701313d2ff9be3f89611abba60cee153443cc7c271db825982823dad201b06",
+      "bytes": 5326
+    },
+    {
+      "path": "components/board-system/tests/test_task_ready.py",
+      "sha256": "68cdf434856993cb4d432f9d596d6d012cd2178bdffcf8f750c073f6c0d5eb8f",
+      "bytes": 10654
+    },
+    {
+      "path": "components/board-system/tests/test_task_status.py",
+      "sha256": "0f079cc4a47f31eb8e0b6b6fcc77ca0f13bc19e332f3090b6bbc794f6b4a651b",
+      "bytes": 5594
+    },
+    {
+      "path": "components/board-system/tests/test_task_transfer.py",
+      "sha256": "f4fe6807efe7a36346321461cefdcda1bef24a264c1b114d7502e82f9bfd3665",
+      "bytes": 7263
+    },
+    {
+      "path": "components/board-system/skills/project-assign/SKILL.md",
+      "sha256": "681ee90ddf4af1c050ba826ff89fe164332b5bf3a69900caa2a986a8f50067da",
+      "bytes": 3122
+    },
+    {
+      "path": "components/board-system/skills/project-assign/agents/openai.yaml",
+      "sha256": "b4c5a0c906fc6cd3fbdc814d427ab244f30dac28b955bfd11db0aa8e96351758",
+      "bytes": 193
+    },
+    {
+      "path": "components/board-system/skills/task-ready/SKILL.md",
+      "sha256": "20c68e5e374133a2885394ff41f42af37f220eaaf699a6a2b873571aefcc3697",
+      "bytes": 2456
+    },
+    {
+      "path": "components/board-system/skills/task-ready/agents/openai.yaml",
+      "sha256": "393a3f56978fa964d2b8b911d930642ac669273f8fa8c88f71ec97e99a960387",
+      "bytes": 238
+    },
+    {
+      "path": "components/board-system/skills/project-register/SKILL.md",
+      "sha256": "0d173ad09ce5f0f8cd219cd2209b3dd4e37b03f498bd536622254e431569c85b",
+      "bytes": 1305
+    },
+    {
+      "path": "components/board-system/skills/project-register/agents/openai.yaml",
+      "sha256": "2f38bd4c4b80f55c4636d3ea8922fc0d4e9dcef63df5b8964f4f724456085cd7",
+      "bytes": 250
+    },
+    {
+      "path": "components/board-system/skills/task-block/SKILL.md",
+      "sha256": "0400abe5ae43694093141d9493070f85b0888fd9e275c57e00d310863fde4278",
+      "bytes": 1277
+    },
+    {
+      "path": "components/board-system/skills/task-block/agents/openai.yaml",
+      "sha256": "96357a96a085e59e2aa4c3a384ab0d06a9391c69f18bcdaf7b09376c1d7216e7",
+      "bytes": 207
+    },
+    {
+      "path": "components/board-system/skills/task-update/SKILL.md",
+      "sha256": "be83e905221a795ac9359607806a4e683796b0ba068b1a15c51d48f32f5a03c2",
+      "bytes": 2158
+    },
+    {
+      "path": "components/board-system/skills/task-update/agents/openai.yaml",
+      "sha256": "7734966fb5d90bfb30be249f23438d43c52245291b4127252a4b09e73cb487cd",
+      "bytes": 211
+    },
+    {
+      "path": "components/board-system/skills/task-dependencies/SKILL.md",
+      "sha256": "b950e80e3814ba9df328788df56b7455073bdb6d53f63783d808bb3c7969c51b",
+      "bytes": 3282
+    },
+    {
+      "path": "components/board-system/skills/task-dependencies/agents/openai.yaml",
+      "sha256": "283fed27f0e2561276c1752cdda7cb5694de0151b013cc6e309d2d4b38971b31",
+      "bytes": 220
+    },
+    {
+      "path": "components/board-system/skills/project-list/SKILL.md",
+      "sha256": "ccd2f10c4647b1e8177fe58a7004c56b8e4bc9b4eed672e05927d541ba7d51c9",
+      "bytes": 1498
+    },
+    {
+      "path": "components/board-system/skills/project-list/agents/openai.yaml",
+      "sha256": "76e0e91829d2c12543d55637ce919408f028fc3d80d01f9dcc8b3b50d55b0980",
+      "bytes": 204
+    },
+    {
+      "path": "components/board-system/skills/task-done/SKILL.md",
+      "sha256": "2bea17c60301ab5e87885c812832d450827550d5368497f4ebdac39d68d636ff",
+      "bytes": 1289
+    },
+    {
+      "path": "components/board-system/skills/task-done/agents/openai.yaml",
+      "sha256": "dba9d452c6569392589ce854f10d612d61e40ae17cef9dce13cb1d4cef57cad4",
+      "bytes": 256
+    },
+    {
+      "path": "components/board-system/skills/project-assess/SKILL.md",
+      "sha256": "97568ee15aaf7359957dd08e5b58900ee1c0fb799c559f670e845bb04ffbc251",
+      "bytes": 4956
+    },
+    {
+      "path": "components/board-system/skills/project-assess/agents/openai.yaml",
+      "sha256": "462a54603e692fa0a2e99a27d288d737ba73fe74dc31314f62cbcae01e59eed7",
+      "bytes": 219
+    },
+    {
+      "path": "components/board-system/skills/task-transfer/SKILL.md",
+      "sha256": "d75d0fd8083838191950d2f82d7e79ddc996675f3f079b6e4161640ac4a6db21",
+      "bytes": 1832
+    },
+    {
+      "path": "components/board-system/skills/task-transfer/agents/openai.yaml",
+      "sha256": "3150b87112704aedaeb337b0d28172a8ead5040f6971163f224e34a504340aa7",
+      "bytes": 241
+    },
+    {
+      "path": "components/board-system/skills/agent-skills/SKILL.md",
+      "sha256": "57c2335f6c7bb761cb6924f53e6652a11ebff3412eff125a1fb6620b40dbdcdb",
+      "bytes": 1604
+    },
+    {
+      "path": "components/board-system/skills/agent-skills/agents/openai.yaml",
+      "sha256": "cf4c1e1237531587949d7fb98eec74c300d568fd7ef9c353f632c6687398fa0d",
+      "bytes": 107
+    },
+    {
+      "path": "components/board-system/skills/task-status/SKILL.md",
+      "sha256": "3c5fc1ab25d3a337f9f34aac78ac8cb44e93f75f37fba04fd149bf4e35963edb",
+      "bytes": 1540
+    },
+    {
+      "path": "components/board-system/skills/task-status/agents/openai.yaml",
+      "sha256": "510b7f3d5d2e75d1490f3e1aaff9dcc18bf61fbd162c8c047b8f4f5e00521d0d",
+      "bytes": 198
+    },
+    {
+      "path": "components/board-system/skills/project-status/SKILL.md",
+      "sha256": "876d17b67500a6e6d02bae6e501e90dbbc7f132fab95bc3834089fd125ed8360",
+      "bytes": 2744
+    },
+    {
+      "path": "components/board-system/skills/project-status/agents/openai.yaml",
+      "sha256": "eaaa6988f367c7d5e4735c013ce42e189f451a5739aa947fde64a4c7f2b5793d",
+      "bytes": 196
+    },
+    {
+      "path": "components/board-system/skills/task-register/SKILL.md",
+      "sha256": "4abddeee299923fbce6474796244e7ac96e796feaa46aaa6b1232c6f806d17ad",
+      "bytes": 1715
+    },
+    {
+      "path": "components/board-system/skills/task-register/agents/openai.yaml",
+      "sha256": "94c4b955fffd01061a75858ea45d82a8abde48015ff0c8b0d85d467b2c751d28",
+      "bytes": 242
+    },
+    {
+      "path": "components/board-system/skills/project-archive/SKILL.md",
+      "sha256": "8bd6626c9db0cfb5321699da01193f0f527d3627c778d542423928a09fbbbda3",
+      "bytes": 1563
+    },
+    {
+      "path": "components/board-system/skills/project-archive/agents/openai.yaml",
+      "sha256": "9775d34c79ee00e30599289b7e76783a39b25162163d7b25742966550470731c",
+      "bytes": 257
+    },
+    {
+      "path": "components/coms-system/README.md",
+      "sha256": "144303f3ad9d0bcc78f73ffd64b9b9ad13ab85612efbcb0acea51eb30ede3169",
+      "bytes": 6685
+    },
+    {
+      "path": "components/coms-system/bin/agent-team",
+      "sha256": "7a2a35367790b038f0fccd7b6b27b435fec537870f82435549beb6b5b77934d8",
+      "bytes": 2706
+    },
+    {
+      "path": "components/coms-system/bin/dev-drain",
+      "sha256": "2c345ef55a64aca57e2e344343c84bc499bf0a2b684881dd5f85c97167634fac",
+      "bytes": 1394
+    },
+    {
+      "path": "components/coms-system/bin/dev-inbox",
+      "sha256": "78d170433722678c5dd4c39b2088ebb121f63f2add6e0617f983975a632981d5",
+      "bytes": 1304
+    },
+    {
+      "path": "components/coms-system/bin/dev-msg",
+      "sha256": "5a179be61f274465b12ef852acbefa07f8cf12076e0fde759e97ad8f4fa0ebc6",
+      "bytes": 13095
+    },
+    {
+      "path": "components/coms-system/bin/dev-msg-status",
+      "sha256": "c0bc600ff20a4d5b59c35d172c549dc791fdcd64136c9715009436625495dc11",
+      "bytes": 1421
+    },
+    {
+      "path": "components/coms-system/bin/dev-read",
+      "sha256": "4de6036ab154bf7f9d7df3761d5c1485f03f5ddfc9f704c987d6962eca96d3f7",
+      "bytes": 2020
+    },
+    {
+      "path": "components/coms-system/lib/freq_coms_receipts.py",
+      "sha256": "d357edac4d5ef76c69ff8fd91808df02099780339e861c654cee15781eb13ad8",
+      "bytes": 12676
+    },
+    {
+      "path": "components/coms-system/tests/test_agent_team.py",
+      "sha256": "f84bdd7b4a16be4890d021926272cf05cec80ee5911f270cd1fbfc483684f28d",
+      "bytes": 4526
+    },
+    {
+      "path": "components/coms-system/tests/test_dev_drain.py",
+      "sha256": "7829c22d9cd7602843e25f2f2d32ae5eca2c4046024679191f1f4cacc1d59d7f",
+      "bytes": 3046
+    },
+    {
+      "path": "components/coms-system/tests/test_dev_inbox.py",
+      "sha256": "2c3b19db733f5ac1c446c98ab7ab64caf57560eb7d7cc05eb4cb5aec792d8bd1",
+      "bytes": 2822
+    },
+    {
+      "path": "components/coms-system/tests/test_dev_msg.py",
+      "sha256": "6280702d691ca130a825eb3163911e41b1e07cddeaf7108ab29eca37d30a9df1",
+      "bytes": 15212
+    },
+    {
+      "path": "components/coms-system/tests/test_dev_read.py",
+      "sha256": "494cc70508b9aa387c65c88120a85ac94a8293dfc2767626b3ae9df15fffe575",
+      "bytes": 2918
+    },
+    {
+      "path": "components/coms-system/tests/test_lifecycle.py",
+      "sha256": "5dca35cf03c255bc4608a8579fbf2235244f6cf3835580cdf1a4126a1d0f8c27",
+      "bytes": 3734
+    },
+    {
+      "path": "components/coms-system/skills/dev-msg/SKILL.md",
+      "sha256": "69f06eab2a9c09def97081344b8d49df6b7a932937d635164c048b236cd6a4a2",
+      "bytes": 3091
+    },
+    {
+      "path": "components/coms-system/skills/dev-msg/agents/openai.yaml",
+      "sha256": "3c855df223af4195e0b4b23bc00d884341182a4463ba527081e27f840970c438",
+      "bytes": 209
+    },
+    {
+      "path": "components/coms-system/skills/dev-inbox/SKILL.md",
+      "sha256": "203dc1e60b186b20e32f3d2f1c48e2edd14df902bc0869f822375e6867387c69",
+      "bytes": 1212
+    },
+    {
+      "path": "components/coms-system/skills/dev-inbox/agents/openai.yaml",
+      "sha256": "f73e2bc767f858909bf4fbfb3ab142703f46f269cc1f357785f5181e210ee920",
+      "bytes": 174
+    },
+    {
+      "path": "components/coms-system/skills/dev-drain/SKILL.md",
+      "sha256": "06f6b7c3344164ff72c4be200aea34d18dd60e8f590adb840f6cace6ea500c92",
+      "bytes": 869
+    },
+    {
+      "path": "components/coms-system/skills/dev-drain/agents/openai.yaml",
+      "sha256": "bed6ad7ed7cd4a24c46a7f644f78ce1ed7f7673546e3657c2f4c5daca2574967",
+      "bytes": 218
+    },
+    {
+      "path": "components/coms-system/skills/dev-msg-status/SKILL.md",
+      "sha256": "6795708b0e4b782ac6e02c56722b4f159ba1bbf126075500def9008bb6649454",
+      "bytes": 928
+    },
+    {
+      "path": "components/coms-system/skills/dev-msg-status/agents/openai.yaml",
+      "sha256": "a59f4edaf88b4913d8209030598edabd1510703b88d6bd7588339ffbdf84a01b",
+      "bytes": 259
+    },
+    {
+      "path": "components/coms-system/skills/agent-team/SKILL.md",
+      "sha256": "a47feb719b38dd8bcd8b3c60a4378c687a0e2740d94af7e38d229e6f96fb51a3",
+      "bytes": 1037
+    },
+    {
+      "path": "components/coms-system/skills/agent-team/agents/openai.yaml",
+      "sha256": "1f2903ec045cc1f977f9b8f9d3b8e4dc80f31d1802f123704e7fc863f90c36f3",
+      "bytes": 228
+    },
+    {
+      "path": "components/coms-system/skills/dev-read/SKILL.md",
+      "sha256": "a6f4f5daf447b3ba5b8e874a99edeed0191a18fdc6531b1a926aa367cc69380e",
+      "bytes": 952
+    },
+    {
+      "path": "components/coms-system/skills/dev-read/agents/openai.yaml",
+      "sha256": "849fbdec698eafc5c9bc20987ccdd67a51778433fd72a1db9b4b1b7713161d43",
+      "bytes": 178
+    },
+    {
+      "path": "components/discord-connector/agent_control.py",
+      "sha256": "d0ae1ee8e2474f695d69b08be888b453cdb34aac3eaa3850da47178fb704deac",
+      "bytes": 5181
+    },
+    {
+      "path": "components/discord-connector/connector.py",
+      "sha256": "805359fe53477479ebf8de8242662a37191c208a111cfc62601ff3a3ec79d548",
+      "bytes": 19916
+    },
+    {
+      "path": "components/discord-connector/freq-agent-control.service",
+      "sha256": "cae5e62f495c13e84a8067a54fd51bae44ca7c145033ae1b6926d58f5dbaee94",
+      "bytes": 389
+    },
+    {
+      "path": "components/discord-connector/freq-agent-control.socket",
+      "sha256": "54a3583a6b424d6ae17bbfceb3ba2062675f995504b99a5a9bf6645d013a498d",
+      "bytes": 221
+    },
+    {
+      "path": "components/discord-connector/freq-discord.service",
+      "sha256": "54a8cf4261659af6f28fd760e724abd99c1a2dd5e6e9ca1d23b28a200d80ca92",
+      "bytes": 877
+    },
+    {
+      "path": "components/discord-connector/freq_discord_bot.py",
+      "sha256": "94a650c1d53d9f51e2fa2fd57fd705b74bd1852ba8ec0c2ad216cae613820df3",
+      "bytes": 13834
+    },
+    {
+      "path": "components/discord-connector/freq_discord_core.py",
+      "sha256": "11927eed4bf9f6c7083cd7320e2e2a8cf961101ad8276fcee828103dc51865ee",
+      "bytes": 16111
+    },
+    {
+      "path": "components/discord-connector/freq_groups.py",
+      "sha256": "ba2bc3734394bfc0068e9b31856367fe86564fdf23d3e3faa3ab1bc7b19b4ac4",
+      "bytes": 4527
+    },
+    {
+      "path": "components/discord-connector/requirements.txt",
+      "sha256": "7941e6c8802683d54abf20e082893ac14081e73df44ec64f184c6a97adeaf15b",
+      "bytes": 18
+    },
+    {
+      "path": "components/board-behavior/AGENTS.board.md",
+      "sha256": "233d57b316fa2313170e0ab92b937f77d8244a390bdfd48d915ce87a17c42cf2",
+      "bytes": 2279
+    },
+    {
+      "path": "components/board-behavior/CLAUDE.board.md",
+      "sha256": "233d57b316fa2313170e0ab92b937f77d8244a390bdfd48d915ce87a17c42cf2",
+      "bytes": 2279
+    },
+    {
+      "path": "docs/installed-templates/tmux.conf.template",
+      "sha256": "b315d4fbb615bc4cd801786ba103fc7819b7693f8dfa084443ee4cc25c20fb36",
+      "bytes": 1793
+    },
+    {
+      "path": "docs/installed-templates/agent-lifecycle.template",
+      "sha256": "9cfd3d6c220732d948bc899f45c527f75c0d3c9d7ab9d376a6e00f2bb87feb0a",
+      "bytes": 7476
+    },
+    {
+      "path": "docs/installed-templates/agent-startup-message.md",
+      "sha256": "63075a1a99ccd15d884ffaeb3aa31537beb4e7e46b197947d7abcc236ad5cf32",
+      "bytes": 1600
+    },
+    {
+      "path": "docs/installed-templates/stop-gate.md",
+      "sha256": "062cb20e1f5c6458d7db0f16257f0112343630977950beffc8730ce62c357e52",
+      "bytes": 6993
+    },
+    {
+      "path": "docs/installed-templates/agent-crontab.md",
+      "sha256": "8bcd5abe414dddecab2346baab25c03bf7ebee58d7723c0f3165589978a27f63",
+      "bytes": 2558
+    },
+    {
+      "path": "docs/installed-templates/storage-run.md",
+      "sha256": "77066289151f54008ffafc7538023bcbad10556326f7c60492bba7e36c508fa4",
+      "bytes": 4551
+    }
+  ]
+}

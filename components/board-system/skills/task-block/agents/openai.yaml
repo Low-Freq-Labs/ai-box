@@ -1,0 +1,4 @@
+interface:
+  display_name: "Block Owned Task"
+  short_description: "Block your active task with one reason"
+  default_prompt: "Use $task-block to block this active task I own with the exact current reason."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "List Dev Inbox"
+  short_description: "List unread agent communication files"
+  default_prompt: "Use $dev-inbox to list my unread agent messages."

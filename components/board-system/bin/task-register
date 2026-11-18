@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+import sys
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from freq_board import (
+    BoardError,
+    append_history,
+    build_index,
+    current_agent,
+    history_entry,
+    locked,
+    rewrite,
+    set_blocked_reason,
+    validate_project,
+    validate_reason,
+)
+
+
+def usage():
+    print(
+        "Usage: task-register <project-id> <title> <full-description> "
+        "[blocked-reason]",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
+def validate_title(title):
+    if not title:
+        raise BoardError("task title is empty")
+    if len(title) > 160:
+        raise BoardError("task title exceeds 160 characters")
+    if "\n" in title or "\r" in title:
+        raise BoardError("task title must be one line")
+    if "/" in title:
+        raise BoardError("task title must not contain a slash")
+    if title.startswith("."):
+        raise BoardError("task title must not begin with a dot")
+    if len(f"{title}.md".encode()) > 255:
+        raise BoardError("task title is too long for a filename")
+
+
+def run(arguments):
+    if len(arguments) not in (3, 4):
+        usage()
+    project_id, title, description = arguments[:3]
+    reason = arguments[3] if len(arguments) == 4 else None
+    validate_title(title)
+    if not description:
+        raise BoardError("full description is empty")
+    if reason is not None:
+        validate_reason(reason)
+
+    project = validate_project(project_id)
+    agent = current_agent()
+    stamp = datetime.now(ZoneInfo("America/Chicago")).isoformat(timespec="seconds")
+    status = "blocked" if reason is not None else "ready"
+
+    with locked(project):
+        try:
+            from freq_task_identity import assert_title_available
+            assert_title_available(project, title)
+        except ValueError as error:
+            raise BoardError(str(error)) from error
+        if build_index(project).get(title):
+            raise BoardError(f"task already exists in project: {title}")
+        content = (
+            f"# {title}\n\n"
+            f"- Project: `{project_id}`\n"
+            f"- Registered by: `{agent}`\n"
+            f"- Registered at: `{stamp}`\n\n"
+            f"## Task\n\n{description}\n"
+        )
+        if reason is not None:
+            content = set_blocked_reason(content, reason)
+            content = append_history(
+                content, history_entry(agent, "REGISTER BLOCKED", reason)
+            )
+        target = project / status / f"{title}.md"
+        rewrite(target, content)
+
+    print(f"REGISTERED TASK: {title} -> {project_id}/{status}/{title}.md")
+
+
+if __name__ == "__main__":
+    try:
+        run(sys.argv[1:])
+    except BoardError as error:
+        print(f"task-register: REGISTER FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)
+    except (OSError, UnicodeError) as error:
+        print(f"task-register: REGISTER FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Task Update"
+  short_description: "Correct task metadata without state changes"
+  default_prompt: "Use $task-update to inspect the current board and perform its supported procedure."

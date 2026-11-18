@@ -1,0 +1,4 @@
+interface:
+  display_name: "Assign Project Membership"
+  short_description: "Join or leave a board project cleanly"
+  default_prompt: "Use $project-assign to join or leave this board project."

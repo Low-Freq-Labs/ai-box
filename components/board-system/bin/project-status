@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+import fcntl
+import json
+import os
+import re
+import stat
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
+from freq_board_inspect import inspect as inspect_board
+
+
+DEFAULT_BOARD_ROOT = Path("/var/lib/freq-agents/board")
+PROJECT_ID_RE = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)*$")
+AGENT_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+BLOCKED_RE = re.compile(
+    r"\n?<!-- FREQ_BOARD_BLOCKED_BEGIN -->\n"
+    r"<!-- FREQ_BOARD_BLOCKED_REASON_JSON: (?P<json>\"[^\n]*\") -->\n"
+    r"## Blocked reason\n\n.*?\n"
+    r"<!-- FREQ_BOARD_BLOCKED_END -->\n?",
+    re.S,
+)
+STATUSES = ("ready", "active", "blocked", "done")
+REQUIRED_DIRECTORIES = (*STATUSES, "archive")
+
+
+class ProjectStatusError(Exception):
+    pass
+
+
+def fail(message):
+    raise ProjectStatusError(message)
+
+
+def usage():
+    print("Usage: project-status <project-id>", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def board_root():
+    if os.environ.get("FREQ_BOARD_TESTING") == "1":
+        return Path(os.environ.get("FREQ_BOARD_ROOT", DEFAULT_BOARD_ROOT))
+    return DEFAULT_BOARD_ROOT
+
+
+def validate_project(project_id):
+    if not PROJECT_ID_RE.fullmatch(project_id) or len(project_id) > 64:
+        fail(f"invalid project ID: {project_id}")
+    project = board_root() / "projects" / project_id
+    if project.is_symlink() or not project.is_dir():
+        fail(f"project does not exist: {project_id}")
+    for status_name in REQUIRED_DIRECTORIES:
+        status_path = project / status_name
+        if status_path.is_symlink() or not status_path.is_dir():
+            fail(f"project status directory is unavailable: {status_name}")
+    return project
+
+
+def read_text(path):
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        fail(f"cannot read blocked task {path.name}: {error}")
+
+
+def direct_tasks(directory):
+    tasks = []
+    try:
+        entries = list(directory.iterdir())
+    except OSError as error:
+        fail(f"cannot inspect {directory}: {error}")
+    for path in entries:
+        if path.name.startswith("."):
+            continue
+        mode = path.lstat().st_mode
+        if not path.name.endswith(".md") or stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
+            fail(f"task path is invalid: {path}")
+        tasks.append((path.name[:-3], path))
+    return sorted(tasks, key=lambda item: item[0].casefold())
+
+
+def assigned_agents(project):
+    agents = []
+    active_root = project / "active"
+    try:
+        entries = list(active_root.iterdir())
+    except OSError as error:
+        fail(f"cannot inspect {active_root}: {error}")
+    for path in entries:
+        if path.name.startswith("."):
+            continue
+        mode = path.lstat().st_mode
+        if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+            fail(f"agent assignment path is invalid: {path}")
+        if not AGENT_RE.fullmatch(path.name):
+            fail(f"agent assignment name is invalid: {path.name}")
+        agents.append((path.name, direct_tasks(path)))
+    return sorted(agents, key=lambda item: item[0])
+
+
+def blocked_reason(path):
+    match = BLOCKED_RE.search(read_text(path))
+    if not match:
+        fail(f"blocked task has no reason: {path.name[:-3]}")
+    try:
+        reason = json.loads(match.group("json"))
+    except json.JSONDecodeError as error:
+        fail(f"blocked reason is invalid in {path.name}: {error}")
+    if (
+        not isinstance(reason, str)
+        or not reason.strip()
+        or "\n" in reason
+        or "\r" in reason
+        or len(reason) > 500
+    ):
+        fail(f"blocked reason is invalid in {path.name}")
+    return reason
+
+
+def render_task_directory(label, tasks, final_root):
+    root_branch = "└──" if final_root else "├──"
+    child_prefix = "    " if final_root else "│   "
+    print(f"{root_branch} {label}/")
+    if not tasks:
+        print(f"{child_prefix}└── (empty)")
+        return
+    for index, (task_name, _) in enumerate(tasks):
+        branch = "└──" if index == len(tasks) - 1 else "├──"
+        print(f"{child_prefix}{branch} {task_name}")
+
+
+def render_active(agents):
+    print("├── active/")
+    if not agents:
+        print("│   └── (empty)")
+        return
+    for agent_index, (agent, tasks) in enumerate(agents):
+        agent_final = agent_index == len(agents) - 1
+        agent_branch = "└──" if agent_final else "├──"
+        print(f"│   {agent_branch} {agent}/")
+        task_prefix = "│       " if agent_final else "│   │   "
+        if not tasks:
+            print(f"{task_prefix}└── (empty)")
+            continue
+        for task_index, (task_name, _) in enumerate(tasks):
+            task_branch = "└──" if task_index == len(tasks) - 1 else "├──"
+            print(f"{task_prefix}{task_branch} {task_name}")
+
+
+def render(project_id, project):
+    ready = direct_tasks(project / "ready")
+    agents = assigned_agents(project)
+    blocked = direct_tasks(project / "blocked")
+    done = direct_tasks(project / "done")
+
+    print(f"PROJECT: {project_id}")
+    render_task_directory("ready", ready, False)
+    render_active(agents)
+
+    print("├── blocked/")
+    if not blocked:
+        print("│   └── (empty)")
+    else:
+        for index, (task_name, path) in enumerate(blocked):
+            task_final = index == len(blocked) - 1
+            task_branch = "└──" if task_final else "├──"
+            reason_prefix = "│       " if task_final else "│   │   "
+            print(f"│   {task_branch} {task_name}")
+            try:
+                print(f"{reason_prefix}Reason: {blocked_reason(path)}")
+            except ProjectStatusError as error:
+                print(f"{reason_prefix}CORRUPT: {error}")
+
+    render_task_directory("done", done, True)
+
+
+import json
+_summary_queues = ('ready', 'active', 'blocked', 'done')
+_summary_limit = 12288
+_summary_max_rows = 20
+
+def summary_render(report, observed):
+    if report.get('complete') is not True or report.get('errors') or report.get('pending_operations'):
+        raise ValueError('Incomplete or corrupt observation; no healthy summary')
+    if not isinstance(report.get('tasks'), list):
+        raise ValueError('Invalid tasks')
+    rows = [r for r in report['tasks'] if r['status'] in _summary_queues]
+    counts = {s: sum((r['status'] == s for r in rows)) for s in _summary_queues}
+    selected = sorted((r for r in rows if r['status'] != 'done'), key=lambda r: (_summary_queues.index(r['status']), r['title'].casefold(), r['task_id']))[:_summary_max_rows]
+
+    def encode(items):
+        shown = {s: sum((r['queue'] == s for r in items)) for s in _summary_queues}
+        result = {'project': report['project'], 'observed_utc': observed, 'consistency': 'one read-locked observation, not ownership or a lease', 'display_order': 'ready, active, blocked; alphabetical within queues; not scheduling priority', 'counts': {s: {'shown': shown[s], 'total': counts[s], 'omitted': counts[s] - shown[s]} for s in _summary_queues}, 'tasks': items, 'partial': any((shown[s] != counts[s] for s in _summary_queues)), 'detail': 'Use existing full project-status or task-status with exact authored title before action.'}
+        return (json.dumps(result, ensure_ascii=False, separators=(',', ':')) + '\n').encode('utf-8')
+    items = []
+    for r in selected:
+        item = {'queue': r['status'], 'title': r['title'], 'task_id': r['task_id'], 'revision': r['revision'], 'owner': r.get('owner')}
+        if r['status'] == 'blocked':
+            reason = r.get('reason', '')
+            item.update(reason=reason[:160], reason_shortened=len(reason) > 160)
+        candidate = items + [item]
+        if len(encode(candidate)) > _summary_limit:
+            break
+        items = candidate
+    result = encode(items)
+    if len(result) > _summary_limit:
+        raise ValueError('Summary metadata exceeds bound')
+    return result
+
+def run(arguments):
+    if '--summary' in arguments:
+        from datetime import datetime, timezone
+        if len(arguments) != 2 or arguments[1] != '--summary':
+            fail('Usage: project-status <project-id> --summary')
+        project = validate_project(arguments[0])
+        fd = os.open(project, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH)
+            report = inspect_board(project)
+            observed = datetime.now(timezone.utc).isoformat()
+            try:
+                output = summary_render(report, observed)
+            except (ValueError, KeyError, TypeError) as error:
+                fail(str(error))
+        except (OSError, ValueError) as error:
+            fail(str(error))
+        finally:
+            os.close(fd)
+        sys.stdout.buffer.write(output)
+        return
+    if '--json' in arguments or '--include-errors' in arguments:
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument('project'); parser.add_argument('--json', action='store_true')
+        parser.add_argument('--include-errors', action='store_true')
+        parser.add_argument('--cursor', type=int, default=0); parser.add_argument('--limit', type=int, default=100)
+        options = parser.parse_args(arguments)
+        if options.cursor < 0 or not 1 <= options.limit <= 1000:
+            fail('Invalid pagination bounds')
+        project = validate_project(options.project)
+        fd = os.open(project, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH)
+            report = inspect_board(project)
+        finally:
+            os.close(fd)
+        total = len(report['tasks']); end = options.cursor + options.limit
+        report['tasks'] = report['tasks'][options.cursor:end]
+        report['total_tasks'] = total
+        report['next_cursor'] = end if end < total else None
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return
+    if len(arguments) != 1:
+        usage()
+    project_id = arguments[0]
+    project = validate_project(project_id)
+    lock_descriptor = os.open(project, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(lock_descriptor, fcntl.LOCK_SH)
+        report = inspect_board(project)
+        # Preserve the familiar healthy tree. Corrupt paths use the tolerant view.
+        if report['errors'] or report['pending_operations']:
+            print(f'PROJECT: {project_id}')
+            for row in report['tasks']:
+                print(row['status'] + '/' + (row['owner'] + '/' if row['owner'] else '') + row['title'])
+                for error in row['errors']:
+                    print('  CORRUPT: ' + error)
+            for entry in report['errors']:
+                print('ERROR: ' + entry['path'] + ': ' + entry['error'])
+            for entry in report['pending_operations']:
+                print('PENDING: ' + entry['operation_id'] + ' ' + entry['state'])
+            fail('; '.join(e['error'] for e in report['errors']) or 'Pending transaction requires recovery')
+        render(project_id, project)
+    finally:
+        os.close(lock_descriptor)
+
+
+if __name__ == "__main__":
+    try:
+        run(sys.argv[1:])
+    except ProjectStatusError as error:
+        message = f"project-status: STATUS FAILED: {error}"
+        if '--summary' in sys.argv[1:]:
+            raw = message.encode('utf-8')
+            if len(raw) > 12000:
+                message = raw[:11900].decode('utf-8', errors='ignore') + ' [error shortened]'
+        print(message, file=sys.stderr)
+        raise SystemExit(1)
+    except OSError as error:
+        message = f"project-status: STATUS FAILED: {error}"
+        if '--summary' in sys.argv[1:]:
+            raw = message.encode('utf-8')
+            if len(raw) > 12000:
+                message = raw[:11900].decode('utf-8', errors='ignore') + ' [error shortened]'
+        print(message, file=sys.stderr)
+        raise SystemExit(1)

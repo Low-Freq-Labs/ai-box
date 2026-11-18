@@ -1,0 +1,4 @@
+interface:
+  display_name: "Task Dependencies"
+  short_description: "Review explicit task dependency evidence"
+  default_prompt: "Use $task-dependencies to inspect the current board and perform its supported procedure."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Send Dev Message"
+  short_description: "Message an agent or reply to Sonny"
+  default_prompt: "Use $dev-msg to send a titled message to an agent or reply to Sonny through Discord."

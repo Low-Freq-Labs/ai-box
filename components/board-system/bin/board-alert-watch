@@ -1,0 +1,325 @@
+#!/usr/bin/env python3
+import fcntl
+import hashlib
+import json
+import os
+import pwd
+import re
+import stat
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from freq_board_alert import BoardAlertError, capture_visible, send_alert
+
+
+DEFAULT_BOARD_ROOT = Path("/var/lib/freq-agents/board")
+DEFAULT_STATE_ROOT = Path("/run/freq-agents/board-alert")
+PROJECT_ID_RE = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)*$")
+AGENT_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+ACTIVE_SECONDS = 300
+EMPTY_SECONDS = 600
+
+
+class WatchError(Exception):
+    pass
+
+
+def fail(message):
+    raise WatchError(message)
+
+
+def testing():
+    return os.environ.get("FREQ_BOARD_TESTING") == "1"
+
+
+def board_root():
+    if testing() and os.environ.get("FREQ_BOARD_ROOT"):
+        return Path(os.environ["FREQ_BOARD_ROOT"])
+    return DEFAULT_BOARD_ROOT
+
+
+def state_root():
+    if testing() and os.environ.get("FREQ_BOARD_ALERT_STATE_ROOT"):
+        return Path(os.environ["FREQ_BOARD_ALERT_STATE_ROOT"])
+    return DEFAULT_STATE_ROOT
+
+
+def current_agent():
+    if testing() and os.environ.get("FREQ_BOARD_AGENT"):
+        agent = os.environ["FREQ_BOARD_AGENT"]
+    else:
+        try:
+            agent = pwd.getpwuid(os.geteuid()).pw_name
+        except KeyError:
+            fail(f"cannot determine agent from Linux uid: {os.geteuid()}")
+    if not AGENT_RE.fullmatch(agent):
+        fail(f"Linux account name is not a valid agent name: {agent}")
+    return agent
+
+
+def now_seconds():
+    if testing() and os.environ.get("FREQ_BOARD_ALERT_NOW"):
+        try:
+            return float(os.environ["FREQ_BOARD_ALERT_NOW"])
+        except ValueError:
+            fail("FREQ_BOARD_ALERT_NOW must be numeric")
+    return time.time()
+
+
+def task_names(directory):
+    tasks = []
+    try:
+        entries = list(directory.iterdir())
+    except OSError as error:
+        fail(f"cannot inspect active queue {directory}: {error}")
+    for path in entries:
+        if path.name.startswith("."):
+            continue
+        mode = path.lstat().st_mode
+        if not path.name.endswith(".md") or stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
+            fail(f"active task path is invalid: {path}")
+        tasks.append(path.name[:-3])
+    return sorted(tasks, key=str.casefold)
+
+
+def assignments(agent):
+    projects_root = board_root() / "projects"
+    if projects_root.is_symlink() or not projects_root.is_dir():
+        fail(f"projects root is unavailable: {projects_root}")
+    result = {}
+    for project in sorted(projects_root.iterdir(), key=lambda path: path.name):
+        if project.name.startswith("."):
+            continue
+        if (
+            not PROJECT_ID_RE.fullmatch(project.name)
+            or project.is_symlink()
+            or not project.is_dir()
+        ):
+            fail(f"project path is invalid: {project}")
+        assignment = project / "active" / agent
+        if not assignment.exists() and not assignment.is_symlink():
+            continue
+        if assignment.is_symlink() or not assignment.is_dir():
+            fail(f"agent assignment path is invalid: {assignment}")
+        descriptor = os.open(project, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_SH)
+            from freq_board_pause import load as paused
+            if paused(project, agent):
+                continue
+            result[project.name] = task_names(assignment)
+        finally:
+            os.close(descriptor)
+    return result
+
+
+def read_state(path):
+    if not path.exists():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        fail(f"watch state is invalid: {path}: {error}")
+    if not isinstance(value, dict):
+        fail(f"watch state is invalid: {path}")
+    return value
+
+
+def write_state(path, value):
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(value, stream, sort_keys=True, separators=(",", ":"))
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+            os.fchmod(stream.fileno(), 0o660)
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def remove_state(path):
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def fingerprint(active_projects):
+    encoded = json.dumps(active_projects, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def capture_hash(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def active_message(active_projects):
+    lines = [
+        "BOARD-ALERT: You have active tasks, and your pane has not changed for 5 minutes."
+    ]
+    for project_id, tasks in active_projects.items():
+        lines.extend(("", f"{project_id}:"))
+        lines.extend(f"- {task}" for task in tasks)
+    lines.extend(("", "Continue working or update the task status."))
+    return "\n".join(lines)
+
+
+def empty_message(project_id):
+    return "\n".join(
+        (
+            f"BOARD-ALERT: You are currently assigned to {project_id}, and your active queue has been empty for 10 minutes.",
+            "",
+            f"Run: project-status {project_id}",
+            "",
+            "- Claim a ready task if work remains.",
+            "- Check blocked tasks: has anything changed because of work completed by you or another agent?",
+            f"- For explicit dependency hints: task-dependencies list {project_id} (advisory; does not unblock tasks).",
+            "- If you are no longer working on this project, run:",
+            f"  project-assign {project_id} inactive",
+        )
+    )
+
+
+def process_active(agent, active_projects, agent_state, now):
+    state_path = agent_state / "active.json"
+    if not active_projects:
+        remove_state(state_path)
+        return
+    try:
+        pane_id, capture = capture_visible(agent)
+    except BoardAlertError as error:
+        print(f"board-alert-watch: ACTIVE CHECK FAILED: {error}", file=sys.stderr)
+        return
+    current_hash = capture_hash(capture)
+    current_fingerprint = fingerprint(active_projects)
+    state = read_state(state_path)
+    if (
+        state is None
+        or state.get("pane_id") != pane_id
+        or state.get("capture_hash") != current_hash
+        or state.get("task_fingerprint") != current_fingerprint
+    ):
+        write_state(
+            state_path,
+            {
+                "alerted": False,
+                "capture_hash": current_hash,
+                "pane_id": pane_id,
+                "since": now,
+                "task_fingerprint": current_fingerprint,
+            },
+        )
+        return
+    if state.get("alerted") is True or now - float(state.get("since", now)) < ACTIVE_SECONDS:
+        return
+
+    try:
+        confirm_pane, confirm_capture = capture_visible(agent)
+    except BoardAlertError as error:
+        print(f"board-alert-watch: ACTIVE RECHECK FAILED: {error}", file=sys.stderr)
+        return
+    confirm_hash = capture_hash(confirm_capture)
+    if confirm_pane != pane_id or confirm_hash != current_hash:
+        write_state(
+            state_path,
+            {
+                "alerted": False,
+                "capture_hash": confirm_hash,
+                "pane_id": confirm_pane,
+                "since": now,
+                "task_fingerprint": current_fingerprint,
+            },
+        )
+        return
+
+    attempted = dict(state)
+    attempted["alerted"] = True
+    attempted["alerted_at"] = now
+    write_state(state_path, attempted)
+    try:
+        send_alert(agent, active_message(active_projects))
+        print(f"BOARD-ALERT SENT: {agent} active queue stalled")
+    except BoardAlertError as error:
+        print(f"board-alert-watch: ACTIVE ALERT FAILED: {error}", file=sys.stderr)
+
+
+def process_empty(agent, empty_projects, agent_state, now):
+    expected = {f"empty-{project_id}.json" for project_id in empty_projects}
+    for path in agent_state.glob("empty-*.json"):
+        if path.name not in expected:
+            remove_state(path)
+    for project_id in empty_projects:
+        state_path = agent_state / f"empty-{project_id}.json"
+        state = read_state(state_path)
+        if state is None:
+            write_state(state_path, {"alerted": False, "since": now})
+            continue
+        if state.get("alerted") is True or now - float(state.get("since", now)) < EMPTY_SECONDS:
+            continue
+        state["alerted"] = True
+        state["alerted_at"] = now
+        write_state(state_path, state)
+        try:
+            send_alert(agent, empty_message(project_id))
+            print(f"BOARD-ALERT SENT: {agent} empty queue in {project_id}")
+        except BoardAlertError as error:
+            print(f"board-alert-watch: EMPTY ALERT FAILED: {error}", file=sys.stderr)
+
+
+def run(arguments):
+    if arguments:
+        print("Usage: board-alert-watch", file=sys.stderr)
+        raise SystemExit(1)
+    agent = current_agent()
+    root = state_root()
+    if root.is_symlink() or not root.is_dir():
+        fail(f"alert state root is unavailable: {root}")
+    agent_state = root / agent
+    try:
+        agent_state.mkdir(mode=0o2770, exist_ok=True)
+        agent_state.chmod(0o2770)
+    except OSError as error:
+        fail(f"cannot prepare agent alert state: {error}")
+    if agent_state.is_symlink() or not agent_state.is_dir():
+        fail(f"agent alert state is invalid: {agent_state}")
+
+    lock_descriptor = os.open(
+        agent_state / ".watch.lock", os.O_WRONLY | os.O_CREAT, 0o660
+    )
+    try:
+        os.fchmod(lock_descriptor, 0o660)
+        fcntl.flock(lock_descriptor, fcntl.LOCK_EX)
+        assigned = assignments(agent)
+        active_projects = {
+            project_id: tasks for project_id, tasks in assigned.items() if tasks
+        }
+        empty_projects = [
+            project_id for project_id, tasks in assigned.items() if not tasks
+        ]
+        now = now_seconds()
+        process_active(agent, active_projects, agent_state, now)
+        process_empty(agent, empty_projects, agent_state, now)
+    finally:
+        os.close(lock_descriptor)
+
+
+if __name__ == "__main__":
+    try:
+        run(sys.argv[1:])
+    except WatchError as error:
+        print(f"board-alert-watch: WATCH FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)
+    except OSError as error:
+        print(f"board-alert-watch: WATCH FAILED: {error}", file=sys.stderr)
+        raise SystemExit(1)

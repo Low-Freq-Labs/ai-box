@@ -1,0 +1,4 @@
+interface:
+  display_name: "List Board Projects"
+  short_description: "Show projects and their assigned agents"
+  default_prompt: "Use $project-list to show all board projects and their assigned agents."

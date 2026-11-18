@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Assess"
+  short_description: "Record a concrete project stopping assessment"
+  default_prompt: "Use $project-assess to inspect the current board and perform its supported procedure."
