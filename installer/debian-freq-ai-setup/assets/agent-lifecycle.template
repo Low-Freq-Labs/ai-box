@@ -91,7 +91,7 @@ case "$action" in
         if [[ $runtime == codex ]]; then
             # Keep explicit launch settings as well as config.toml defaults.
             # Escaped quotes survive the outer shell for TOML string parsing.
-            runtime_command='codex --no-daemon --model gpt-6-astra -c model_reasoning_effort=\"medium\" -c check_for_update_on_startup=false -c notice.hide_rate_limit_model_nudge=true'
+            runtime_command='codex --no-daemon --model gpt-6.1-sol -c model_reasoning_effort=\"high\" -c check_for_update_on_startup=false -c notice.hide_rate_limit_model_nudge=true'
         fi
         launch="exec tmux -S ${socket} new-session -d -s ${session} -n ${window} -c ${home} /bin/bash -lc 'exec ${runtime_command}'"
         if ! "${as_agent[@]}" env SSH_ORIGINAL_COMMAND="$launch" /usr/local/sbin/freq-agent-sandbox 9<&-; then

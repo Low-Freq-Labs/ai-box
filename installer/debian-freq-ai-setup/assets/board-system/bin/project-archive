@@ -5,9 +5,14 @@ from pathlib import Path
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from freq_stop_gate import GateError
 from freq_board import (
     BoardError,
     append_history,
+    append_task_note,
+    require_assignment,
+    require_owner,
+    set_blocked_reason,
     build_index,
     current_agent,
     history_entry,
@@ -71,7 +76,45 @@ def render_archive(project_id, index):
         print(f"{branch} {task_name}")
 
 
+def retire(arguments):
+    from freq_board_update import changes_file
+    from freq_board_transaction import arguments as operation_arguments, transition
+
+    if len(arguments) != 6 or arguments[2] != "--retire" or arguments[4] != "--expected-revision":
+        raise BoardError("retirement requires PROJECT exact-title --retire CHANGES --expected-revision SHA256")
+    project_id, title, _, changes_path, _, expected_revision = arguments
+    if len(expected_revision) != 64 or any(c not in "0123456789abcdef" for c in expected_revision):
+        raise BoardError("expected revision must be SHA256")
+    if title in ("all", "show"):
+        raise BoardError("retirement requires one exact task title")
+    change, change_sha = changes_file(changes_path)
+    if "reason" not in change or "description" in change:
+        raise BoardError("retirement requires reason, note and pinned evidence; no description rewrite")
+    operation = operation_arguments([project_id, title, change_sha, "--expected-revision", expected_revision], "project-archive-retire")
+    if operation is None:
+        return
+    project = validate_project(project_id)
+    agent = current_agent()
+    with locked(project):
+        location = locate(project, title)
+        require_assignment(project, agent)
+        if location["status"] == "active":
+            require_owner(location, agent)
+        elif location["status"] not in ("blocked", "ready"):
+            raise BoardError("only open tasks may be retired; use normal archive for done work")
+        content = set_blocked_reason(read_text(location["path"]))
+        content = append_history(content, history_entry(agent, "RETIRED", change["reason"]))
+        content = append_task_note(content, "Retirement note", agent,
+            change["note"] + "\n\nRetired from current work; this is not implementation completion or acceptance.",
+            [("Disposition", change["reason"]), ("Changes SHA256", change_sha), ("Prior revision", expected_revision)])
+        transition(project, location, "archive", content,
+            audit={"kind": "retirement", "reason": change["reason"], "changes_sha256": change_sha, "evidence": change["evidence"]})
+        print("RETIRED: " + title + " -> " + project_id + "/archive (not completed)")
+
+
 def run(arguments):
+    if "--retire" in arguments:
+        return retire(arguments)
     if len(arguments) != 2:
         usage()
     project_id, selection = arguments
@@ -128,6 +171,6 @@ if __name__ == "__main__":
     except BoardError as error:
         print(f"project-archive: ARCHIVE FAILED: {error}", file=sys.stderr)
         raise SystemExit(1)
-    except (OSError, UnicodeError) as error:
+    except (OSError, UnicodeError, ValueError, GateError) as error:
         print(f"project-archive: ARCHIVE FAILED: {error}", file=sys.stderr)
         raise SystemExit(1)

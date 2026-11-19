@@ -1,13 +1,14 @@
 {
-  "snapshot": "ai-box-sync-20261118",
-  "scope": "Maintained infrastructure components and completed existing Debian13 installer source; excludes credentials, private agent/runtime state and site grants.",
+  "snapshot": "ai-box-sync-20261118-r2",
+  "scope": "Maintained AI-Box infrastructure and portable installer only. Runtime credentials, site-specific grants, live board/messages/session data, private homes and project applications excluded.",
   "original_bundle_sha256": "7a3a6b4a360ab5e677b35135fe53056d6fd3701422db3e1d4debac75914c4142",
   "initial_public_commit": "41927c96f5c064de61cba095c312ced1f2dd69de",
+  "previous_source_commit": "c10f2778c3cde145128563e024ea349e35d95f0b",
   "files": [
     {
       "path": "README.md",
-      "sha256": "aa18f522d6aa3b33e4821834cca9304cb9fc6230fe1a9cf95510ba4f341c7b5e",
-      "bytes": 2504
+      "sha256": "c8a424a41ee0d29e3503e5970a315122987e05cf507a78d5e406ff0d10e99fad",
+      "bytes": 2589
     },
     {
       "path": "components/board-behavior/AGENTS.board.md",
@@ -36,8 +37,8 @@
     },
     {
       "path": "components/board-system/bin/project-archive",
-      "sha256": "49fa8bd515f45ecae7b3bc04bce9fd39ffe95ad36dbe1b0c6033aaf3bd45e461",
-      "bytes": 4142
+      "sha256": "87787d70098ceb990d5c80b05e75468ad86dbc33c6e1943c89900805073dea8d",
+      "bytes": 6620
     },
     {
       "path": "components/board-system/bin/project-assess",
@@ -181,8 +182,8 @@
     },
     {
       "path": "components/board-system/skills/project-archive/SKILL.md",
-      "sha256": "8bd6626c9db0cfb5321699da01193f0f527d3627c778d542423928a09fbbbda3",
-      "bytes": 1563
+      "sha256": "28046074976633ca2b6960c7bfcf1bbcfc32b83a74debf8250e253c261c64039",
+      "bytes": 2985
     },
     {
       "path": "components/board-system/skills/project-archive/agents/openai.yaml",
@@ -370,6 +371,11 @@
       "bytes": 9038
     },
     {
+      "path": "components/board-system/tests/test_retirement.py",
+      "sha256": "2e5883b4aef5cc4d68d2d5639619d1430f5c0d055a9f157d95a15d226c5542a5",
+      "bytes": 4010
+    },
+    {
       "path": "components/board-system/tests/test_task_block_done.py",
       "sha256": "1c701313d2ff9be3f89611abba60cee153443cc7c271db825982823dad201b06",
       "bytes": 5326
@@ -465,16 +471,6 @@
       "bytes": 174
     },
     {
-      "path": "components/coms-system/skills/dev-msg/SKILL.md",
-      "sha256": "69f06eab2a9c09def97081344b8d49df6b7a932937d635164c048b236cd6a4a2",
-      "bytes": 3091
-    },
-    {
-      "path": "components/coms-system/skills/dev-msg/agents/openai.yaml",
-      "sha256": "3c855df223af4195e0b4b23bc00d884341182a4463ba527081e27f840970c438",
-      "bytes": 209
-    },
-    {
       "path": "components/coms-system/skills/dev-msg-status/SKILL.md",
       "sha256": "6795708b0e4b782ac6e02c56722b4f159ba1bbf126075500def9008bb6649454",
       "bytes": 928
@@ -483,6 +479,16 @@
       "path": "components/coms-system/skills/dev-msg-status/agents/openai.yaml",
       "sha256": "a59f4edaf88b4913d8209030598edabd1510703b88d6bd7588339ffbdf84a01b",
       "bytes": 259
+    },
+    {
+      "path": "components/coms-system/skills/dev-msg/SKILL.md",
+      "sha256": "69f06eab2a9c09def97081344b8d49df6b7a932937d635164c048b236cd6a4a2",
+      "bytes": 3091
+    },
+    {
+      "path": "components/coms-system/skills/dev-msg/agents/openai.yaml",
+      "sha256": "3c855df223af4195e0b4b23bc00d884341182a4463ba527081e27f840970c438",
+      "bytes": 209
     },
     {
       "path": "components/coms-system/skills/dev-read/SKILL.md",
@@ -610,6 +616,11 @@
       "bytes": 6815
     },
     {
+      "path": "docs/SOURCE-MAINTENANCE.md",
+      "sha256": "1adc45ae1d6db63952435e0144d012ad9ca7791775dfa1cd9cf2ccc62aa5e2d2",
+      "bytes": 2772
+    },
+    {
       "path": "docs/installed-templates/agent-crontab.md",
       "sha256": "8bcd5abe414dddecab2346baab25c03bf7ebee58d7723c0f3165589978a27f63",
       "bytes": 2558
@@ -646,8 +657,8 @@
     },
     {
       "path": "installer/QUALIFICATION.md",
-      "sha256": "dfde34f41a5c7866f24eb87c2a25072558cb9e74b31a9d3ef1e1cf9f07fd732f",
-      "bytes": 2146
+      "sha256": "f66645d34a6bb03a660ea90b6689b78b2394fe18c7b518549c79553373bdca47",
+      "bytes": 2287
     },
     {
       "path": "installer/build-installer.py",
@@ -656,8 +667,8 @@
     },
     {
       "path": "installer/debian-freq-ai-setup/AI-BOX-SYNC.md",
-      "sha256": "2c9de801891739323205144844602b83b7a8308f21a565002860db38d95ee55f",
-      "bytes": 1134
+      "sha256": "429e1f702d2692ea4c5e4f1f417b4f3e30d7956492267007855a2baede612ccf",
+      "bytes": 1669
     },
     {
       "path": "installer/debian-freq-ai-setup/accept-ai-packages.sh",
@@ -681,8 +692,8 @@
     },
     {
       "path": "installer/debian-freq-ai-setup/assets/agent-lifecycle.template",
-      "sha256": "6fb0db3479b1ec4289bbded6b3a99b12e0b7b262161fed3cf5982a77f377dc4b",
-      "bytes": 7478
+      "sha256": "9cfd3d6c220732d948bc899f45c527f75c0d3c9d7ab9d376a6e00f2bb87feb0a",
+      "bytes": 7476
     },
     {
       "path": "installer/debian-freq-ai-setup/assets/agent-startup-message.md",
@@ -731,8 +742,8 @@
     },
     {
       "path": "installer/debian-freq-ai-setup/assets/board-system/bin/project-archive",
-      "sha256": "49fa8bd515f45ecae7b3bc04bce9fd39ffe95ad36dbe1b0c6033aaf3bd45e461",
-      "bytes": 4142
+      "sha256": "87787d70098ceb990d5c80b05e75468ad86dbc33c6e1943c89900805073dea8d",
+      "bytes": 6620
     },
     {
       "path": "installer/debian-freq-ai-setup/assets/board-system/bin/project-assess",
@@ -876,8 +887,8 @@
     },
     {
       "path": "installer/debian-freq-ai-setup/assets/board-system/skills/project-archive/SKILL.md",
-      "sha256": "8bd6626c9db0cfb5321699da01193f0f527d3627c778d542423928a09fbbbda3",
-      "bytes": 1563
+      "sha256": "28046074976633ca2b6960c7bfcf1bbcfc32b83a74debf8250e253c261c64039",
+      "bytes": 2985
     },
     {
       "path": "installer/debian-freq-ai-setup/assets/board-system/skills/project-archive/agents/openai.yaml",
@@ -1065,6 +1076,11 @@
       "bytes": 9038
     },
     {
+      "path": "installer/debian-freq-ai-setup/assets/board-system/tests/test_retirement.py",
+      "sha256": "2e5883b4aef5cc4d68d2d5639619d1430f5c0d055a9f157d95a15d226c5542a5",
+      "bytes": 4010
+    },
+    {
       "path": "installer/debian-freq-ai-setup/assets/board-system/tests/test_task_block_done.py",
       "sha256": "1c701313d2ff9be3f89611abba60cee153443cc7c271db825982823dad201b06",
       "bytes": 5326
@@ -1180,16 +1196,6 @@
       "bytes": 174
     },
     {
-      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-msg/SKILL.md",
-      "sha256": "69f06eab2a9c09def97081344b8d49df6b7a932937d635164c048b236cd6a4a2",
-      "bytes": 3091
-    },
-    {
-      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-msg/agents/openai.yaml",
-      "sha256": "3c855df223af4195e0b4b23bc00d884341182a4463ba527081e27f840970c438",
-      "bytes": 209
-    },
-    {
       "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-msg-status/SKILL.md",
       "sha256": "6795708b0e4b782ac6e02c56722b4f159ba1bbf126075500def9008bb6649454",
       "bytes": 928
@@ -1198,6 +1204,16 @@
       "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-msg-status/agents/openai.yaml",
       "sha256": "a59f4edaf88b4913d8209030598edabd1510703b88d6bd7588339ffbdf84a01b",
       "bytes": 259
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-msg/SKILL.md",
+      "sha256": "69f06eab2a9c09def97081344b8d49df6b7a932937d635164c048b236cd6a4a2",
+      "bytes": 3091
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-msg/agents/openai.yaml",
+      "sha256": "3c855df223af4195e0b4b23bc00d884341182a4463ba527081e27f840970c438",
+      "bytes": 209
     },
     {
       "path": "installer/debian-freq-ai-setup/assets/coms-system/skills/dev-read/SKILL.md",
@@ -1281,8 +1297,8 @@
     },
     {
       "path": "installer/debian-freq-ai-setup/assets/create-agent",
-      "sha256": "cf04d939203916910fb78dafcee7e5fd9bcc8f15d1d02afcd1d83a6abd184aec",
-      "bytes": 23709
+      "sha256": "065559bec997609047138fac71b403bd38bee484b4b69eff2d9ab5ae93800f31",
+      "bytes": 23705
     },
     {
       "path": "installer/debian-freq-ai-setup/assets/delete-agent",
@@ -1920,6 +1936,11 @@
       "bytes": 5154
     },
     {
+      "path": "installer/debian-freq-ai-setup/assets/wrap-up-state",
+      "sha256": "5e0a9904ebac71e934b3ce7c0a9ed2414d29f938e566201333cf6c2a0e8fe17d",
+      "bytes": 5514
+    },
+    {
       "path": "installer/debian-freq-ai-setup/assets/wrap-up/SKILL.md",
       "sha256": "1249a973c2ec2e0fc1a0838ad3986a80ce8fea9a2aa8594b87809ebb8117249f",
       "bytes": 6265
@@ -1928,11 +1949,6 @@
       "path": "installer/debian-freq-ai-setup/assets/wrap-up/agents/openai.yaml",
       "sha256": "44aa41764b0c1708849fa30c9af819ce8e1c150d7c54df0ea36ec8e8ae9331c3",
       "bytes": 257
-    },
-    {
-      "path": "installer/debian-freq-ai-setup/assets/wrap-up-state",
-      "sha256": "5e0a9904ebac71e934b3ce7c0a9ed2414d29f938e566201333cf6c2a0e8fe17d",
-      "bytes": 5514
     },
     {
       "path": "installer/debian-freq-ai-setup/bootstrap-freq-ai-setup",
@@ -2026,13 +2042,13 @@
     },
     {
       "path": "installer/debian-freq-ai-setup/tests/test_model_defaults.py",
-      "sha256": "a1452b0d401c0f5694d4e05fa9245369388769fcdea39975b5e965d4685293b6",
-      "bytes": 1678
+      "sha256": "df5ed855e9753bbcf677435d53cf660eebb4ab49a5edc7866fc21364ff2346bd",
+      "bytes": 1674
     },
     {
       "path": "installer/debian-freq-ai-setup/tests/test_portable_sync.py",
-      "sha256": "126edf350bbcd734cb2f2e6c5d430527414f653f91111a7eb9ebbb6302dcd1a7",
-      "bytes": 5179
+      "sha256": "bdd05f06dd7ac3309d7a4a87791f107c6f8791011f361508de26dea9419064cd",
+      "bytes": 5469
     },
     {
       "path": "installer/debian-freq-ai-setup/tests/test_remote_phase_client.py",

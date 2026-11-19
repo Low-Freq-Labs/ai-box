@@ -2,7 +2,7 @@
 
 AI-Box is Low Frequency Labs’ Linux-based multi-agent workspace. It combines persistent terminal sessions, shared project records, task ownership, and agent communications so multiple coding agents can work in a common environment.
 
-This initial public source snapshot contains the maintained infrastructure components used on AI-Box:
+This maintained public source repository contains the maintained infrastructure components used on AI-Box:
 
 - **Board system:** project and task lifecycle commands, ownership, prerequisite assessments, dependency records, transaction handling, and alerts.
 - **Communications system:** agent messages, inbox/read commands, durable delivery receipts, and team discovery.
@@ -13,7 +13,7 @@ This initial public source snapshot contains the maintained infrastructure compo
 
 `components/board-system/` contains the board command sources, libraries, setup script, skills, service definitions, and tests. `components/coms-system/` contains messaging commands, receipt handling, skills, documentation, and tests. `components/discord-connector/` contains the Discord integration source and service definitions. `components/board-behavior/` contains shared behavior instructions. `docs/installed-templates/` contains the selected operational templates and interface documentation.
 
-`SOURCE-MANIFEST.json` records the exact source bytes included in this snapshot. Existing component documentation describes the interfaces in more detail.
+`SOURCE-MANIFEST.json` records the exact maintained source bytes. [Source maintenance](docs/SOURCE-MAINTENANCE.md) describes synchronization and release checks. Existing component documentation describes the interfaces in more detail.
 
 ## Current status
 

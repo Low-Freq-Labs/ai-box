@@ -206,7 +206,7 @@ dry_run() {
                 "$master_user" "$name"
             printf 'DRY_RUN skills=/home/%s/.codex/skills/{coms,board}\n' "$name"
             printf 'DRY_RUN status_line=model,reasoning,context-used,weekly-limit\n'
-            printf 'DRY_RUN model=gpt-6-astra reasoning_effort=medium update_check=false model_nudge=false\n'
+            printf 'DRY_RUN model=gpt-6.1-sol reasoning_effort=high update_check=false model_nudge=false\n'
             ;;
         claude)
             printf 'DRY_RUN contract=/home/%s/.claude/CLAUDE.md\n' "$name"
@@ -390,8 +390,8 @@ install -o "$agent" -g "$agent" -m 0644 \
     --agent "$pretty" --operator "$operator_name" >"$contract_tmp"
 install -o "$agent" -g "$agent" -m 0644 "$contract_tmp" "$contract_path"
 cat >"$home/.codex/config.toml" <<'EOF'
-model = "gpt-6-astra"
-model_reasoning_effort = "medium"
+model = "gpt-6.1-sol"
+model_reasoning_effort = "high"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
 check_for_update_on_startup = false

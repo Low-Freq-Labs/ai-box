@@ -36,19 +36,22 @@ class PortableSyncTests(unittest.TestCase):
             renderer.render(template, 'Nova\nGrant root', 'Operator')
 
     def test_dependency_cycles_and_missing_prerequisites_fail_honestly(self):
-        model = module('dependency_model', ASSETS/'board-system/lib/freq_dependency_model.py')
-        def task(title):
-            return dict(task_id=model.identity('EXAMPLE',title), title=title,
-                        status='blocked', revision=1, links=[])
-        def link(t):
-            return dict(project='EXAMPLE',task_id=t['task_id'],title=t['title'],scope='required')
-        first, second = task('First'), task('Second')
-        first['links']=[link(second)]
-        indexed=model.validate('EXAMPLE',[first])
-        self.assertEqual(model.candidate('EXAMPLE',first,indexed,{})['state'],'unknown')
-        second['links']=[link(first)]
-        with self.assertRaisesRegex(ValueError,'Cycle'):
-            model.validate('EXAMPLE',[first,second])
+        with tempfile.TemporaryDirectory() as temp, \
+                patch.object(sys, 'path', [str(ASSETS/'board-system/lib')] + sys.path), \
+                patch.dict(os.environ, {'FREQ_BOARD_TESTING': '1', 'FREQ_BOARD_ROOT': temp}):
+            model = module('dependency_model', ASSETS/'board-system/lib/freq_dependency_model.py')
+            def task(title):
+                return dict(task_id=model.identity('EXAMPLE',title), title=title,
+                            status='blocked', revision=1, links=[])
+            def link(t):
+                return dict(project='EXAMPLE',task_id=t['task_id'],title=t['title'],scope='required')
+            first, second = task('First'), task('Second')
+            first['links']=[link(second)]
+            indexed=model.validate('EXAMPLE',[first])
+            self.assertEqual(model.candidate('EXAMPLE',first,indexed,{})['state'],'unknown')
+            second['links']=[link(first)]
+            with self.assertRaisesRegex(ValueError,'Cycle'):
+                model.validate('EXAMPLE',[first,second])
 
     def test_new_skill_payloads_have_required_files(self):
         for path in ('board-system/skills/task-dependencies', 'coms-system/skills/dev-msg-status', 'watch-once'):
