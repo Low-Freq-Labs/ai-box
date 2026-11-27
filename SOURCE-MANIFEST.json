@@ -1,9 +1,9 @@
 {
-  "snapshot": "ai-box-sync-20261118-r2",
+  "snapshot": "ai-box-sync-20261127-r1",
   "scope": "Maintained AI-Box infrastructure and portable installer only. Runtime credentials, site-specific grants, live board/messages/session data, private homes and project applications excluded.",
   "original_bundle_sha256": "7a3a6b4a360ab5e677b35135fe53056d6fd3701422db3e1d4debac75914c4142",
   "initial_public_commit": "41927c96f5c064de61cba095c312ced1f2dd69de",
-  "previous_source_commit": "c10f2778c3cde145128563e024ea349e35d95f0b",
+  "previous_source_commit": "f865a4ca5b2d6c42c4c93a8fe9e1a6c9ce74d3f5",
   "files": [
     {
       "path": "README.md",
@@ -617,8 +617,8 @@
     },
     {
       "path": "docs/SOURCE-MAINTENANCE.md",
-      "sha256": "1adc45ae1d6db63952435e0144d012ad9ca7791775dfa1cd9cf2ccc62aa5e2d2",
-      "bytes": 2772
+      "sha256": "061d192c9e1625d286c8542985804d83c769a84e28851c990af6e303e08f13e8",
+      "bytes": 3254
     },
     {
       "path": "docs/installed-templates/agent-crontab.md",
@@ -652,8 +652,8 @@
     },
     {
       "path": "installer/PORTABLE-INSTALL.md",
-      "sha256": "c2b5dff16e65dfa528df60e85f7a4511312b1a812eb657e03fda1e877875bbfc",
-      "bytes": 15168
+      "sha256": "adb69a164fa1b7e54e4925a7023b1b7493a9a991902fff4db8ca35b59df1d119",
+      "bytes": 16049
     },
     {
       "path": "installer/QUALIFICATION.md",
@@ -1112,8 +1112,8 @@
     },
     {
       "path": "installer/debian-freq-ai-setup/assets/check-semgrep-compatibility",
-      "sha256": "0bc4bf1ddf16971d2a8c9a84ee6e76a46cc821fce1744a8739a69d8a06a98e59",
-      "bytes": 6071
+      "sha256": "45d3bd672670630737551e77819d4df9687681c8f482e57f376eb32450868e92",
+      "bytes": 6371
     },
     {
       "path": "installer/debian-freq-ai-setup/assets/claude-statusline",
@@ -1812,7 +1812,7 @@
     },
     {
       "path": "installer/debian-freq-ai-setup/assets/semgrep-compat-policy.json",
-      "sha256": "c722a64e540800c65e647dcf39b6fba1ec869b8cb65dc280d92de02758da854e",
+      "sha256": "fa262918c82e9fab57d02cf73824a202dad56cf303961cf10279ad843d518561",
       "bytes": 967
     },
     {
@@ -1882,8 +1882,8 @@
     },
     {
       "path": "installer/debian-freq-ai-setup/assets/update-managed-tools",
-      "sha256": "76d45e758f9f1c30476a911cd467f3649beb37888b1f5c1246f6ccf54d4bdce2",
-      "bytes": 20000
+      "sha256": "de60bb80ff15a2c8f42fd497a6f1707bfb88222dd2431aa8627d3122e9bd44f3",
+      "bytes": 20543
     },
     {
       "path": "installer/debian-freq-ai-setup/assets/update-shared-git",
@@ -2089,6 +2089,11 @@
       "path": "installer/debian-freq-ai-setup/tests/test_update_discord.py",
       "sha256": "f8f221e2cae849c523fbec918f26418ac5771b6fe659676b500e6fdc40bbcd26",
       "bytes": 4167
+    },
+    {
+      "path": "installer/debian-freq-ai-setup/tests/test_update_managed_tools.py",
+      "sha256": "445097648f632def77d98e76ce845e96fb0f157b0211cfa604c19cb3d664ac0d",
+      "bytes": 2446
     },
     {
       "path": "installer/debian-freq-ai-setup/tests/test_update_ssh_key.py",

@@ -28,7 +28,11 @@ def mcp_check():
         # the real Semgrep factory/registration and actual SDK HTTP sessions.
         yield {}
 
-    with patch('semgrep.commands.mcp.make_token_verifier', return_value=FixtureVerifier()):
+    # Newer Semgrep discovers its issuer while constructing the server. Keep
+    # that external integration outside this offline dependency qualification.
+    with patch('semgrep.commands.mcp.make_token_verifier', return_value=FixtureVerifier()), \
+            patch('semgrep.commands.mcp.get_authorization_server_url',
+                  return_value='https://issuer.invalid', create=True):
         server = setup_mcp_server('localhost', 8765)
     register(server)
     server._mcp_server.lifespan = fixture_lifespan

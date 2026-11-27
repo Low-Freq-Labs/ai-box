@@ -101,7 +101,11 @@ One canonical package directory drives initial setup and baseline repair:
 `apt-base.txt` contains OS tools; `apt-browser.txt` contains the native libraries
 for the bundled Playwright release. No Docker daemon or database server is added.
 
-Standalone tools use upstream release checksums. Semgrep and fonttools each have
+Standalone tools use upstream release checksums. Release selection accepts an
+upstream wheel whose compressed compatibility tags are reordered, while requiring
+the same distribution/version, Python tags, ABI tags and platform tags. Missing
+checksums, ambiguous matching assets and incompatible tags still stop the plan.
+Semgrep and fonttools each have
 their own hashed Python environment. Browser QA has one npm lockfile and its
 matching Chromium, Firefox, and WebKit builds. Managed releases live in
 `/opt/freq-agents/devtools`; commands in `/usr/local/bin` are shared by all users.
@@ -124,6 +128,15 @@ coms/board/Discord application code, skills, or policies are updated by this com
 APT package removals, automatic autoremove, and Debian-release migrations are excluded.
 APT and npm updates are not one atomic transaction: a later failure may leave earlier
 phases updated, and is reported as incomplete rather than rolled back silently.
+
+Semgrep dependency compatibility is qualified for one exact scanner version.
+The current local policy covers 1.186.0 with MCP 1.30.0 and the matching
+OpenTelemetry 1.45.2/0.66b2 packages. Vendor scanner code stays unchanged.
+The full resolved graph still passes the security scan, and every dependency
+outside those six explicit packaging exceptions must satisfy its declared range.
+Offline checks exercise the real MCP server and telemetry with a fixture issuer;
+they do not establish live issuer or hosted-service acceptance. A future scanner
+version does not inherit this policy without new qualification.
 
 Projects still create their own `.venv` or `package.json` under
 `/home/freq-agents/projects/<project>/`. Never install project dependencies into
